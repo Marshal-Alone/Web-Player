@@ -34,6 +34,7 @@ export const PlayerSidebar: React.FC = () => {
   const [libraryData, setLibraryData] = useState<any>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const activeLessonRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const loadData = () => {
     if (profile?._id) {
@@ -47,7 +48,7 @@ export const PlayerSidebar: React.FC = () => {
     loadData();
   }, [profile?._id, currentVideoId]);
 
-  // Auto-expand and scroll active section into view
+  // Auto-expand and scroll active section into view without scrolling the browser window
   useEffect(() => {
     if (!libraryData?.sections || !currentVideoId) return;
 
@@ -59,9 +60,21 @@ export const PlayerSidebar: React.FC = () => {
       }
     }
 
-    setTimeout(() => {
-      activeLessonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const timer = setTimeout(() => {
+      if (scrollContainerRef.current && activeLessonRef.current) {
+        const container = scrollContainerRef.current;
+        const item = activeLessonRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+
+        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
+          const offset = itemRect.top - containerRect.top - container.clientHeight / 2 + item.clientHeight / 2;
+          container.scrollTo({ top: container.scrollTop + offset, behavior: 'smooth' });
+        }
+      }
     }, 150);
+
+    return () => clearTimeout(timer);
   }, [currentVideoId, libraryData]);
 
   const toggleSection = (sectionId: string) => {
@@ -85,11 +98,11 @@ export const PlayerSidebar: React.FC = () => {
         <button
           onClick={toggleSidebar}
           title="Expand Course Path («)"
-          className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-main transition-colors mb-4"
+          className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-main transition-colors mb-4 focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ChevronsRight className="w-5 h-5" />
         </button>
-        <div className="writing-vertical-rl text-[11px] font-bold uppercase tracking-wider text-text-dim rotate-180">
+        <div className="writing-vertical-rl text-[11px] font-medium text-text-dim rotate-180">
           {profile?.name || 'Course Path'}
         </div>
       </aside>
@@ -131,14 +144,14 @@ export const PlayerSidebar: React.FC = () => {
           <div className="w-full h-1.5 bg-card rounded-full overflow-hidden mt-1.5 border border-border">
             <div
               style={{ width: `${overallPercent}%` }}
-              className="h-full bg-accent transition-all duration-300"
+              className="h-full bg-accent transition-opacity duration-300"
             />
           </div>
         </div>
       </div>
 
       {/* Accordion Sections List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2 space-y-1">
         {libraryData?.sections?.map((section: any) => {
           const isExpanded = expandedSections.has(section._id);
           const hasCurrent = section.videos.some((v: any) => v._id === currentVideoId);

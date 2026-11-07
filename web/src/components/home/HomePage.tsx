@@ -77,7 +77,8 @@ export const HomePage: React.FC = () => {
   const totalCompleted = libraryData?.overallProgress?.totalCompleted || 0;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-canvas p-6 md:p-8 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden bg-canvas w-full min-w-0">
+      <div className="max-w-7xl mx-auto p-4 sm:p-6 md:p-8 space-y-8 w-full min-w-0">
       {/* Profile Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
@@ -298,5 +299,6 @@ export const HomePage: React.FC = () => {
         )}
       </div>
     </div>
+  </div>
   );
 };

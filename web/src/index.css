@@ -23,6 +23,14 @@
   --accent-subtle: rgba(59, 130, 246, 0.15);
   --accent-text: #60a5fa;
 
+  /* Activity Heatmap Tokens (DSA: Blue) */
+  --activity-level-0: #14192b;
+  --activity-level-1: #1e3a8a;
+  --activity-level-2: #2563eb;
+  --activity-level-3: #3b82f6;
+  --activity-level-4: #60a5fa;
+  --activity-border: #272f4a;
+
   /* Fonts */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -34,6 +42,12 @@
   --accent-hover: #059669;
   --accent-subtle: rgba(16, 185, 129, 0.15);
   --accent-text: #34d399;
+  --activity-level-0: #14192b;
+  --activity-level-1: #064e3b;
+  --activity-level-2: #059669;
+  --activity-level-3: #10b981;
+  --activity-level-4: #34d399;
+  --activity-border: #272f4a;
 }
 
 /* Explicit DSA Profile Accent */
@@ -57,23 +71,46 @@
   --text-secondary: #475569;
   --text-dim: #64748b;
   --accent-subtle: rgba(59, 130, 246, 0.1);
+  --activity-level-0: #e2e8f0;
+  --activity-level-1: #93c5fd;
+  --activity-level-2: #60a5fa;
+  --activity-level-3: #3b82f6;
+  --activity-level-4: #1d4ed8;
+  --activity-border: #cbd5e1;
 }
 
 [data-theme="light"][data-profile="development"],
 .light[data-profile="development"] {
   --accent-subtle: rgba(16, 185, 129, 0.1);
+  --activity-level-0: #e2e8f0;
+  --activity-level-1: #a7f3d0;
+  --activity-level-2: #6ee7b7;
+  --activity-level-3: #10b981;
+  --activity-level-4: #047857;
+  --activity-border: #cbd5e1;
 }
 
 /* Hallmark Mandatory Floor Rules */
 html,
 body {
-  overflow-x: clip;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
   background-color: var(--bg-canvas);
   color: var(--text-primary);
   font-family: var(--font-sans);
   margin: 0;
   padding: 0;
   min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Instant accessible focus-visible indicator */

@@ -25,15 +25,57 @@ const getInitialTheme = (): AppTheme => {
   return 'dark';
 };
 
+const getInitialView = (): AppView => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const videoId = params.get('v') || params.get('video');
+    if (videoId) return 'player';
+
+    const view = params.get('view') as AppView;
+    if (view && ['library', 'player', 'settings', 'stats'].includes(view)) return view;
+
+    const saved = localStorage.getItem('course_player_view') as AppView;
+    if (saved && ['library', 'player', 'settings', 'stats'].includes(saved)) {
+      if (saved === 'player' && !localStorage.getItem('course_player_current_video')) {
+        return 'library';
+      }
+      return saved;
+    }
+  }
+  return 'library';
+};
+
 export const useUIStore = create<UIState>((set) => ({
-  currentView: 'library',
+  currentView: getInitialView(),
   theme: getInitialTheme(),
   isShortcutsModalOpen: false,
   isNotesDrawerOpen: false,
   isBookmarksDrawerOpen: false,
   isResourcesDrawerOpen: false,
 
-  setCurrentView: (view) => set({ currentView: view }),
+  setCurrentView: (view) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('course_player_view', view);
+      try {
+        const url = new URL(window.location.href);
+        if (view === 'player') {
+          const currentVid = localStorage.getItem('course_player_current_video');
+          if (currentVid) url.searchParams.set('v', currentVid);
+          url.searchParams.delete('view');
+        } else {
+          url.searchParams.delete('v');
+          url.searchParams.delete('video');
+          if (view === 'library') {
+            url.searchParams.delete('view');
+          } else {
+            url.searchParams.set('view', view);
+          }
+        }
+        window.history.replaceState({}, '', url.pathname + url.search);
+      } catch {}
+    }
+    set({ currentView: view });
+  },
 
   setTheme: (theme) => {
     if (typeof window !== 'undefined') {

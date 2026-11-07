@@ -13,7 +13,25 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }
 
     const section = await Section.findById(video.sectionId);
-    const progress = await Progress.findOne({ videoId: video._id });
+
+    // Update profile current video and record active viewing state in MongoDB
+    await Profile.updateOne({ _id: video.profileId }, { $set: { currentVideoId: video._id } });
+
+    let progress = await Progress.findOne({ videoId: video._id });
+    if (!progress) {
+      progress = await Progress.create({
+        profileId: video.profileId,
+        videoId: video._id,
+        sectionId: video.sectionId,
+        currentTime: 0,
+        duration: video.duration || 0,
+        completed: false,
+        lastWatched: new Date()
+      });
+    } else {
+      progress.lastWatched = new Date();
+      await progress.save();
+    }
 
     // Fetch all non-missing videos in this profile ordered by section.order and video.order
     const allSections = await Section.find({ profileId: video.profileId }).sort({ order: 1 });
@@ -94,32 +112,33 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       const chunksize = end - start + 1;
       const fileStream = fs.createReadStream(resolvedPath, { start, end });
 
-      reply.raw.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunksize,
-        'Content-Type': mimeType,
-        'Cache-Control': 'no-cache'
-      });
-
       // Handle stream abort on client seek/disconnect
       req.raw.on('close', () => {
         fileStream.destroy();
       });
 
-      return reply.send(fileStream);
+      return reply
+        .code(206)
+        .header('Content-Range', `bytes ${start}-${end}/${fileSize}`)
+        .header('Accept-Ranges', 'bytes')
+        .header('Content-Length', chunksize)
+        .header('Content-Type', mimeType)
+        .header('Cache-Control', 'no-cache')
+        .send(fileStream);
     } else {
-      reply.raw.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-        'Accept-Ranges': 'bytes'
-      });
-
       const fileStream = fs.createReadStream(resolvedPath);
+
       req.raw.on('close', () => {
         fileStream.destroy();
       });
-      return reply.send(fileStream);
+
+      return reply
+        .code(200)
+        .header('Content-Length', fileSize)
+        .header('Content-Type', mimeType)
+        .header('Accept-Ranges', 'bytes')
+        .header('Cache-Control', 'no-cache')
+        .send(fileStream);
     }
   });
 
@@ -151,6 +170,9 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         },
         { upsert: true, new: true }
       );
+
+      // Keep profile's current video pointer in sync
+      await Profile.updateOne({ _id: video.profileId }, { $set: { currentVideoId: video._id } });
 
       // Record in watch log for streak and daily stats
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -204,6 +226,9 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       },
       { upsert: true }
     );
+
+    // Keep profile's current video pointer in sync
+    await Profile.updateOne({ _id: video.profileId }, { $set: { currentVideoId: video._id } });
 
     return reply.send({ success: true });
   });

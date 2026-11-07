@@ -61,8 +61,19 @@ const getStoredBool = (key: string, fallback: boolean): boolean => {
   return fallback;
 };
 
+const getInitialVideoId = (): string | null => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('v') || params.get('video');
+    if (v) return v;
+    const saved = localStorage.getItem('course_player_current_video');
+    if (saved) return saved;
+  }
+  return null;
+};
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
-  currentVideoId: null,
+  currentVideoId: getInitialVideoId(),
   video: null,
   section: null,
   prevVideo: null,
@@ -79,9 +90,39 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isCourseComplete: false,
   isDriveLoading: false,
 
-  setCurrentVideoId: (id) => set({ currentVideoId: id }),
+  setCurrentVideoId: (id) => {
+    if (typeof window !== 'undefined') {
+      if (id) {
+        localStorage.setItem('course_player_current_video', id);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('v', id);
+          url.searchParams.delete('view');
+          window.history.replaceState({}, '', url.pathname + url.search);
+        } catch {}
+      } else {
+        localStorage.removeItem('course_player_current_video');
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('v');
+          url.searchParams.delete('video');
+          window.history.replaceState({}, '', url.pathname + url.search);
+        } catch {}
+      }
+    }
+    set({ currentVideoId: id });
+  },
 
-  setVideoData: ({ video, section, prevVideo, nextVideo }) =>
+  setVideoData: ({ video, section, prevVideo, nextVideo }) => {
+    if (typeof window !== 'undefined' && video?._id) {
+      localStorage.setItem('course_player_current_video', video._id);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('v', video._id);
+        url.searchParams.delete('view');
+        window.history.replaceState({}, '', url.pathname + url.search);
+      } catch {}
+    }
     set({
       video,
       section,
@@ -90,7 +131,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentVideoId: video._id,
       isCourseComplete: false,
       isAutoplayCountdownActive: false
-    }),
+    });
+  },
 
   setIsPlaying: (playing) => set({ isPlaying: playing }),
 

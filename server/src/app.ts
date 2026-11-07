@@ -40,13 +40,14 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
     app.register(fastifyStatic, {
       root: distPath,
       prefix: '/',
-      wildcard: false
+      wildcard: true
     });
 
-    // SPA fallback: any non-API route serves index.html
+    // SPA fallback: only non-API, non-asset, non-file routes serve index.html
     app.setNotFoundHandler((req, reply) => {
-      if (req.raw.url && req.raw.url.startsWith('/api')) {
-        return reply.status(404).send({ error: 'Endpoint not found' });
+      const url = req.raw.url || '';
+      if (url.startsWith('/api') || url.startsWith('/assets') || url.includes('.')) {
+        return reply.status(404).send({ error: 'Not found' });
       }
       return reply.sendFile('index.html');
     });

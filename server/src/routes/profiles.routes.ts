@@ -173,14 +173,38 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
     });
   });
 
-  // Continue watching: finds the most recently watched video for this profile
+  // Continue watching: finds the current / most recently watched video for this profile
   app.get<{ Params: { id: string } }>('/api/profiles/:id/continue', async (req, reply) => {
     const { id } = req.params;
-    const recentProgress = await Progress.find({ profileId: id })
-      .sort({ lastWatched: -1 })
-      .limit(1);
+    const profile = await Profile.findById(id);
+    if (!profile) {
+      return reply.status(404).send({ error: 'Profile not found' });
+    }
 
-    if (!recentProgress || recentProgress.length === 0) {
+    let targetVideo: any = null;
+    let prog: any = null;
+
+    if (profile.currentVideoId) {
+      targetVideo = await Video.findById(profile.currentVideoId);
+      if (targetVideo && !targetVideo.missing) {
+        prog = await Progress.findOne({ profileId: id, videoId: targetVideo._id });
+      } else {
+        targetVideo = null;
+      }
+    }
+
+    if (!targetVideo) {
+      const recentProgress = await Progress.find({ profileId: id })
+        .sort({ lastWatched: -1 })
+        .limit(1);
+
+      if (recentProgress && recentProgress.length > 0) {
+        prog = recentProgress[0];
+        targetVideo = await Video.findById(prog.videoId);
+      }
+    }
+
+    if (!targetVideo) {
       // If no watched videos, fallback to the very first video in the first section
       const firstVideo = await Video.findOne({ profileId: id, missing: false }).sort({ order: 1 });
       if (!firstVideo) {
@@ -199,21 +223,18 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
       });
     }
 
-    const prog = recentProgress[0];
-    const video = await Video.findById(prog.videoId);
-    if (!video) {
-      return reply.send({ continueVideo: null });
-    }
-    const section = await Section.findById(video.sectionId);
-
+    const section = await Section.findById(targetVideo.sectionId);
     return reply.send({
       continueVideo: {
-        video,
+        video: targetVideo,
         section,
-        currentTime: prog.currentTime,
-        duration: prog.duration || video.duration || 0,
-        percent: prog.duration > 0 ? Math.min(100, Math.round((prog.currentTime / prog.duration) * 100)) : 0,
-        completed: prog.completed
+        currentTime: prog?.currentTime || 0,
+        duration: prog?.duration || targetVideo.duration || 0,
+        percent:
+          prog && prog.duration > 0
+            ? Math.min(100, Math.round((prog.currentTime / prog.duration) * 100))
+            : 0,
+        completed: prog?.completed || false
       }
     });
   });

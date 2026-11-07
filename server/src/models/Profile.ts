@@ -13,6 +13,7 @@ export interface IProfile extends Document {
   name: string;
   rootPath: string;
   order: number;
+  currentVideoId?: Schema.Types.ObjectId;
   lastScannedAt?: Date;
   stats: IProfileStats;
   createdAt: Date;
@@ -41,6 +42,10 @@ const ProfileSchema = new Schema<IProfile>(
     order: {
       type: Number,
       default: 0
+    },
+    currentVideoId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Video'
     },
     lastScannedAt: {
       type: Date

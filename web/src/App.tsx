@@ -16,8 +16,8 @@ import { BookmarksDrawer } from './components/player/BookmarksDrawer.js';
 
 export function App() {
   const { setProfiles, activeProfileKey } = useProfileStore();
-  const { currentView, theme } = useUIStore();
-  const { isTheatreMode: playerTheatre } = usePlayerStore();
+  const { currentView, setCurrentView, theme } = useUIStore();
+  const { isTheatreMode: playerTheatre, setCurrentVideoId } = usePlayerStore();
 
   useEffect(() => {
     // Set theme and profile attributes
@@ -42,20 +42,49 @@ export function App() {
       });
   }, [activeProfileKey, theme, setProfiles]);
 
+  // Handle browser popstate navigation (Back / Forward buttons & URL sync)
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get('v') || params.get('video');
+      const view = params.get('view') as any;
+
+      if (v) {
+        setCurrentVideoId(v);
+        setCurrentView('player');
+      } else if (view && ['library', 'settings', 'stats'].includes(view)) {
+        setCurrentView(view);
+      } else {
+        setCurrentView('library');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [setCurrentVideoId, setCurrentView]);
+
   return (
-    <div className="min-h-screen bg-canvas text-text-main flex flex-col font-sans">
+    <div
+      className={`w-full max-w-full overflow-x-hidden bg-canvas text-text-main flex flex-col font-sans ${
+        currentView === 'player' ? 'h-screen max-h-screen overflow-hidden' : 'min-h-screen'
+      }`}
+    >
       <Navbar />
 
-      <main className="flex-1 flex overflow-hidden">
+      <main
+        className={`flex-1 flex flex-col w-full min-w-0 ${
+          currentView === 'player' ? 'h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] overflow-hidden' : 'overflow-hidden'
+        }`}
+      >
         {currentView === 'library' && <HomePage />}
 
         {currentView === 'player' && (
-          <div className="flex-1 flex h-[calc(100vh-3.5rem)] overflow-hidden">
+          <div className="flex-1 flex h-full max-h-full overflow-hidden w-full min-w-0">
             {/* Player Sidebar */}
             {!playerTheatre && <PlayerSidebar />}
 
             {/* Video Player Canvas */}
-            <div className="flex-1 flex flex-col items-center justify-center bg-black overflow-hidden relative">
+            <div className="flex-1 flex flex-col items-center justify-center bg-black overflow-hidden relative min-w-0 h-full max-h-full">
               <CustomVideoPlayer />
             </div>
           </div>

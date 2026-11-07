@@ -11,6 +11,14 @@ function srtToVtt(srtText: string): string {
   return vtt;
 }
 
+// Format date in YYYY-MM-DD using local time
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export const learningRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // --- NOTES ---
   app.get<{ Params: { id: string } }>('/api/videos/:id/notes', async (req, reply) => {
@@ -152,7 +160,7 @@ export const learningRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
     }
   });
 
-  // --- STATS & 12-WEEK HEATMAP ---
+  // --- ENHANCED STATS & ACTIVITY HEATMAP ---
   app.get<{ Querystring: { profileId?: string } }>('/api/stats', async (req, reply) => {
     const { profileId } = req.query;
     const filter: Record<string, any> = {};
@@ -160,42 +168,68 @@ export const learningRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
       filter.profileId = profileId;
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const today = new Date();
+    const todayStr = formatLocalDate(today);
     const logs = await WatchLog.find(filter).sort({ date: 1 });
+
+    const logMap = new Map<string, number>();
+    let totalSecondsAllTime = 0;
+    for (const l of logs) {
+      if (l.date) {
+        logMap.set(l.date, Math.round(l.secondsWatched / 60));
+        totalSecondsAllTime += l.secondsWatched || 0;
+      }
+    }
 
     // Calculate today watch time
     const todayLog = logs.find((l) => l.date === todayStr);
     const secondsToday = todayLog ? todayLog.secondsWatched : 0;
 
     // Calculate 7-day watch time
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7);
+    const sevenDaysAgoStr = formatLocalDate(sevenDaysAgo);
     const secondsWeek = logs
       .filter((l) => l.date && l.date >= sevenDaysAgoStr)
-      .reduce((sum, l) => sum + l.secondsWatched, 0);
+      .reduce((sum, l) => sum + (l.secondsWatched || 0), 0);
 
-    // Calculate daily streak
+    // Calculate past 7 days breakdown for bar chart
+    const past7Days: Array<{ date: string; day: string; minutes: number }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const dStr = formatLocalDate(d);
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      past7Days.push({
+        date: dStr,
+        day: dayName,
+        minutes: logMap.get(dStr) || 0
+      });
+    }
+
+    // Active days list & streaks
+    const activeDates = Array.from(
+      new Set(
+        logs
+          .filter((l) => l.date && l.secondsWatched > 60)
+          .map((l) => l.date as string)
+      )
+    ).sort();
+
+    const activeDateSet = new Set(activeDates);
+    const activeDaysCount = activeDateSet.size;
+
+    // Current streak
     let streak = 0;
-    const dateSet = new Set(
-      logs
-        .filter((l) => l.date && l.secondsWatched > 60)
-        .map((l) => l.date as string)
-    );
-    let checkDate = new Date();
-
-    // Check if watched today
-    if (dateSet.has(todayStr)) {
+    let checkDate = new Date(today);
+    if (activeDateSet.has(todayStr)) {
       streak++;
       checkDate.setDate(checkDate.getDate() - 1);
     } else {
-      // If haven't watched today yet, check yesterday to continue yesterday's streak
       checkDate.setDate(checkDate.getDate() - 1);
     }
 
     while (true) {
-      const dStr = checkDate.toISOString().slice(0, 10);
-      if (dateSet.has(dStr)) {
+      const dStr = formatLocalDate(checkDate);
+      if (activeDateSet.has(dStr)) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
       } else {
@@ -203,25 +237,51 @@ export const learningRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
       }
     }
 
-    // 12-week (84 days) heatmap
-    const heatmap: Array<{ date: string; minutes: number }> = [];
-    const heatmapStart = new Date();
-    heatmapStart.setDate(heatmapStart.getDate() - 83);
-
-    const logMap = new Map<string, number>();
-    for (const l of logs) {
-      if (l.date) {
-        logMap.set(l.date, Math.round(l.secondsWatched / 60));
+    // Best streak ever
+    let bestStreak = 0;
+    let currentStreakCount = 0;
+    let prevDateTime: number | null = null;
+    for (const dStr of activeDates) {
+      const curDateTime = new Date(dStr + 'T00:00:00').getTime();
+      if (prevDateTime === null) {
+        currentStreakCount = 1;
+      } else {
+        const diffDays = Math.round((curDateTime - prevDateTime) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          currentStreakCount++;
+        } else {
+          currentStreakCount = 1;
+        }
+      }
+      prevDateTime = curDateTime;
+      if (currentStreakCount > bestStreak) {
+        bestStreak = currentStreakCount;
       }
     }
+    if (streak > bestStreak) bestStreak = streak;
 
-    for (let i = 0; i < 84; i++) {
-      const cur = new Date(heatmapStart);
-      cur.setDate(cur.getDate() + i);
-      const dStr = cur.toISOString().slice(0, 10);
+    // Aligned 52-week (364 days) calendar (Sunday to Saturday weeks)
+    const todayDayOfWeek = today.getDay(); // 0 is Sunday, 6 is Saturday
+    // Go back 51 full weeks plus today's day of week to start on Sunday
+    const calendarStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() - (51 * 7 + todayDayOfWeek)
+    );
+
+    const heatmap: Array<{ date: string; minutes: number; dayOfWeek: number }> = [];
+    const totalDays = 51 * 7 + todayDayOfWeek + 1; // Exactly up to today
+    for (let i = 0; i < totalDays; i++) {
+      const cur = new Date(
+        calendarStart.getFullYear(),
+        calendarStart.getMonth(),
+        calendarStart.getDate() + i
+      );
+      const dStr = formatLocalDate(cur);
       heatmap.push({
         date: dStr,
-        minutes: logMap.get(dStr) || 0
+        minutes: logMap.get(dStr) || 0,
+        dayOfWeek: cur.getDay()
       });
     }
 
@@ -230,16 +290,57 @@ export const learningRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
     const completedProgress = await Progress.countDocuments({ ...filter, completed: true });
     const completionPercent = totalVideos > 0 ? Math.round((completedProgress / totalVideos) * 100) : 0;
 
+    // Curriculum section progress breakdown
+    let sectionProgress: Array<{
+      _id: string;
+      name: string;
+      order: number;
+      totalVideos: number;
+      completedVideos: number;
+      percent: number;
+    }> = [];
+
+    if (profileId) {
+      const sections = await Section.find({ profileId }).sort({ order: 1 });
+      const videos = await Video.find({ profileId, missing: false }).select('_id sectionId');
+      const progressDocs = await Progress.find({ profileId }).select('videoId completed');
+
+      const completedVideoIds = new Set(
+        progressDocs.filter((p) => p.completed).map((p) => p.videoId.toString())
+      );
+
+      sectionProgress = sections.map((sec) => {
+        const secVideos = videos.filter((v) => v.sectionId?.toString() === sec._id.toString());
+        const total = secVideos.length;
+        const completed = secVideos.filter((v) => completedVideoIds.has(v._id.toString())).length;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return {
+          _id: sec._id.toString(),
+          name: sec.name,
+          order: sec.order,
+          totalVideos: total,
+          completedVideos: completed,
+          percent
+        };
+      });
+    }
+
     return reply.send({
       secondsToday,
       minutesToday: Math.round(secondsToday / 60),
       secondsWeek,
       minutesWeek: Math.round(secondsWeek / 60),
+      totalMinutesAllTime: Math.round(totalSecondsAllTime / 60),
+      totalHoursAllTime: Number((totalSecondsAllTime / 3600).toFixed(1)),
       streak,
+      bestStreak,
+      activeDaysCount,
       completionPercent,
       totalVideos,
       completedVideos: completedProgress,
-      heatmap
+      past7Days,
+      heatmap,
+      sectionProgress
     });
   });
 

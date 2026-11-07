@@ -124,53 +124,145 @@ export const CustomVideoPlayer: React.FC = () => {
     }
   };
 
-  // Seek relative
+  const hasResumedRef = useRef(false);
+  const fetchedDataRef = useRef<any>(null);
+  const lastSavedSecRef = useRef<number>(-1);
+
+  // Helper to read stored local position
+  const getLocalStoredPosition = (videoId: string): number => {
+    try {
+      const val = localStorage.getItem(`course_player_pos_${videoId}`);
+      if (val) {
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+    return 0;
+  };
+
+  // Seek relative safely without clamping to 0 when duration is loading
   const seekRelative = (delta: number) => {
-    if (!videoRef.current) return;
-    const next = Math.max(0, Math.min(duration, videoRef.current.currentTime + delta));
-    videoRef.current.currentTime = next;
+    const v = videoRef.current;
+    if (!v) return;
+
+    const current = v.currentTime || 0;
+    const vDur = v.duration;
+    const effectiveDuration =
+      typeof vDur === 'number' && isFinite(vDur) && vDur > 0
+        ? vDur
+        : duration > 0
+          ? duration
+          : video?.duration || 0;
+
+    let next = current + delta;
+    if (effectiveDuration > 0) {
+      next = Math.max(0, Math.min(effectiveDuration, next));
+    } else {
+      next = Math.max(0, next);
+    }
+
+    v.currentTime = next;
     setCurrentTime(next);
     showHud(delta > 0 ? `+${delta}s` : `${delta}s`);
   };
+
+  // Helper to apply resume position safely with zero race condition
+  const applyResume = useCallback(
+    (videoEl: HTMLVideoElement, data?: any) => {
+      setIsDriveLoading(false);
+      const vidDur = videoEl.duration;
+      if (typeof vidDur === 'number' && isFinite(vidDur) && vidDur > 0) {
+        setDuration(vidDur);
+        if (currentVideoId && (!data?.video?.duration || data.video.duration === 0)) {
+          updateVideoDuration(currentVideoId, vidDur);
+        }
+      }
+
+      if (!currentVideoId) return;
+
+      const progressData = data || fetchedDataRef.current;
+      const localPos = getLocalStoredPosition(currentVideoId);
+      const dbPos = progressData?.progress?.currentTime || 0;
+      const isCompleted = progressData?.progress?.completed || false;
+      const effectiveDuration = (vidDur > 0 ? vidDur : progressData?.video?.duration) || 0;
+
+      // Choose candidate time:
+      // If completed AND at the very end of video (> 95%), restart from 0
+      let candidateTime = Math.max(localPos, dbPos);
+      if (isCompleted && effectiveDuration > 0 && candidateTime >= 0.95 * effectiveDuration) {
+        candidateTime = 0;
+      }
+
+      // If we haven't resumed yet, and video element has metadata (readyState >= 1)
+      if (!hasResumedRef.current && videoEl.readyState >= 1) {
+        // If API data hasn't arrived yet and local storage has nothing, wait for API data
+        if (!progressData && localPos <= 0) {
+          return;
+        }
+
+        hasResumedRef.current = true;
+
+        if (candidateTime > 2 && isFinite(candidateTime)) {
+          videoEl.currentTime = candidateTime;
+          setCurrentTime(candidateTime);
+          showHud(`Resumed at ${formatTime(candidateTime)}`);
+        }
+
+        videoEl
+          .play()
+          .then(() => setIsPlaying(true))
+          .catch(() => setIsPlaying(false));
+      } else if (hasResumedRef.current && candidateTime > 2 && videoEl.currentTime < 2) {
+        // Late arrival case: API returned with a valid saved position, but video was sitting at 0
+        videoEl.currentTime = candidateTime;
+        setCurrentTime(candidateTime);
+        showHud(`Resumed at ${formatTime(candidateTime)}`);
+      }
+    },
+    [currentVideoId]
+  );
 
   // Load video metadata and handle resume
   useEffect(() => {
     if (!currentVideoId) return;
 
+    hasResumedRef.current = false;
+    fetchedDataRef.current = null;
+    setIsDriveLoading(true);
+
+    // If metadata is already ready, check if local storage has immediate resume pos
+    if (videoRef.current && videoRef.current.readyState >= 1) {
+      applyResume(videoRef.current);
+    }
+
     fetchVideoDetails(currentVideoId).then((data) => {
+      fetchedDataRef.current = data;
       setVideoData(data);
       if (videoRef.current) {
-        setIsDriveLoading(true);
         videoRef.current.playbackRate = playbackSpeed;
         videoRef.current.volume = isMuted ? 0 : volume;
 
-        // Resume: saved position minus 3s (if not completed; if completed start from 0)
-        let resumeTime = 0;
-        if (data.progress && !data.progress.completed && data.progress.currentTime > 3) {
-          resumeTime = Math.max(0, data.progress.currentTime - 3);
+        if (videoRef.current.readyState >= 1) {
+          applyResume(videoRef.current, data);
         }
-
-        videoRef.current.onloadedmetadata = () => {
-          setIsDriveLoading(false);
-          const vidDur = videoRef.current?.duration || 0;
-          setDuration(vidDur);
-
-          // Lazy duration update to server
-          if (vidDur > 0 && (!data.video.duration || data.video.duration === 0)) {
-            updateVideoDuration(currentVideoId, vidDur);
-          }
-
-          if (resumeTime > 0 && videoRef.current) {
-            videoRef.current.currentTime = resumeTime;
-            setCurrentTime(resumeTime);
-            showHud(`Resumed at ${formatTime(resumeTime)}`);
-          }
-
-          videoRef.current?.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        };
       }
     });
   }, [currentVideoId]);
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      applyResume(videoRef.current, fetchedDataRef.current);
+    }
+  };
+
+  const handleDurationChange = () => {
+    if (videoRef.current) {
+      const vidDur = videoRef.current.duration;
+      if (typeof vidDur === 'number' && isFinite(vidDur) && vidDur > 0) {
+        setDuration(vidDur);
+      }
+    }
+  };
 
   // Periodic progress saving (every 5 seconds)
   useEffect(() => {
@@ -197,6 +289,9 @@ export const CustomVideoPlayer: React.FC = () => {
     if (videoRef.current && currentVideoId) {
       const cur = videoRef.current.currentTime;
       const dur = videoRef.current.duration || duration;
+      try {
+        localStorage.setItem(`course_player_pos_${currentVideoId}`, String(Math.floor(cur)));
+      } catch {}
       saveProgress(currentVideoId, { currentTime: cur, duration: dur });
     }
   }, [currentVideoId, duration]);
@@ -210,6 +305,9 @@ export const CustomVideoPlayer: React.FC = () => {
       if (videoRef.current && currentVideoId) {
         const cur = videoRef.current.currentTime;
         const dur = videoRef.current.duration || duration;
+        try {
+          localStorage.setItem(`course_player_pos_${currentVideoId}`, String(Math.floor(cur)));
+        } catch {}
         beaconProgress(currentVideoId, { currentTime: cur, duration: dur });
       }
     };
@@ -247,7 +345,18 @@ export const CustomVideoPlayer: React.FC = () => {
   // Video onEnded handler
   const handleVideoEnded = () => {
     setIsPlaying(false);
-    flushProgress();
+    if (currentVideoId) {
+      try {
+        localStorage.removeItem(`course_player_pos_${currentVideoId}`);
+      } catch {}
+    }
+    if (videoRef.current && currentVideoId) {
+      const cur = videoRef.current.currentTime;
+      const dur = videoRef.current.duration || duration;
+      saveProgress(currentVideoId, { currentTime: cur, duration: dur, completed: true });
+    } else {
+      flushProgress();
+    }
     if (autoplayEnabled) {
       if (nextVideo) {
         startAutoplayCountdown();
@@ -380,13 +489,30 @@ export const CustomVideoPlayer: React.FC = () => {
   };
 
   const handleTimeUpdate = () => {
-    if (!videoRef.current) return;
-    setCurrentTime(videoRef.current.currentTime);
+    const v = videoRef.current;
+    if (!v) return;
+    setCurrentTime(v.currentTime);
+
+    // Cache position in real-time to localStorage for instant resume on refresh
+    if (currentVideoId && v.currentTime > 0) {
+      const nowSec = Math.floor(v.currentTime);
+      if (nowSec !== lastSavedSecRef.current) {
+        lastSavedSecRef.current = nowSec;
+        try {
+          localStorage.setItem(`course_player_pos_${currentVideoId}`, String(nowSec));
+        } catch {}
+      }
+    }
+
+    // Sync duration if not yet loaded into state
+    if (duration <= 0 && v.duration && isFinite(v.duration) && v.duration > 0) {
+      setDuration(v.duration);
+    }
 
     // Calculate buffered range
-    if (videoRef.current.buffered.length > 0) {
-      const bufferedEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
-      const dur = videoRef.current.duration;
+    if (v.buffered && v.buffered.length > 0) {
+      const bufferedEnd = v.buffered.end(v.buffered.length - 1);
+      const dur = v.duration || duration;
       if (dur > 0) {
         setBufferedPercent(Math.min(100, (bufferedEnd / dur) * 100));
       }
@@ -395,20 +521,43 @@ export const CustomVideoPlayer: React.FC = () => {
 
   // Seek bar click / drag
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || duration <= 0) return;
+    const v = videoRef.current;
+    if (!v) return;
+
+    const vDur = v.duration;
+    const effectiveDuration =
+      typeof vDur === 'number' && isFinite(vDur) && vDur > 0
+        ? vDur
+        : duration > 0
+          ? duration
+          : video?.duration || 0;
+
+    if (effectiveDuration <= 0) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    const newTime = Math.max(0, Math.min(duration, pos * duration));
-    videoRef.current.currentTime = newTime;
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pos * effectiveDuration;
+
+    v.currentTime = newTime;
     setCurrentTime(newTime);
     flushProgress();
   };
 
   const handleSeekHover = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (duration <= 0) return;
+    const v = videoRef.current;
+    const vDur = v?.duration;
+    const effectiveDuration =
+      typeof vDur === 'number' && isFinite(vDur) && vDur > 0
+        ? vDur
+        : duration > 0
+          ? duration
+          : video?.duration || 0;
+
+    if (effectiveDuration <= 0) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setHoverSeekTime(pos * duration);
+    setHoverSeekTime(pos * effectiveDuration);
     setHoverSeekPos(pos * 100);
   };
 
@@ -456,9 +605,7 @@ export const CustomVideoPlayer: React.FC = () => {
     <div
       ref={containerRef}
       onMouseMove={handleUserActivity}
-      className={`relative flex flex-col bg-black select-none ${
-        isTheatreMode ? 'w-full h-full' : 'w-full aspect-video max-h-[calc(100vh-8rem)]'
-      }`}
+      className="relative flex flex-col items-center justify-center bg-black select-none w-full h-full overflow-hidden"
     >
       {/* Top Header Bar inside Video Container */}
       <div
@@ -521,6 +668,8 @@ export const CustomVideoPlayer: React.FC = () => {
       <video
         ref={videoRef}
         src={`/api/videos/${currentVideoId}/stream`}
+        onLoadedMetadata={handleLoadedMetadata}
+        onDurationChange={handleDurationChange}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleVideoEnded}
         onWaiting={() => setIsDriveLoading(true)}
@@ -543,16 +692,16 @@ export const CustomVideoPlayer: React.FC = () => {
 
       {/* Transient HUD Indicator (e.g. "+10s", "1.5x Speed") */}
       {hudMessage && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-black/75 text-white text-sm font-semibold backdrop-blur-md z-30 pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-black/85 text-white text-sm font-semibold z-30 pointer-events-none motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-100">
           {hudMessage}
         </div>
       )}
 
       {/* Autoplay Next Countdown Overlay */}
       {isAutoplayCountdownActive && nextVideo && (
-        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-30 p-6 text-center animate-in fade-in">
-          <span className="text-xs uppercase tracking-wider text-text-muted font-bold mb-2">
-            Up Next in {autoplayCountdownRemaining}s
+        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-30 p-6 text-center motion-safe:animate-in motion-safe:fade-in">
+          <span className="text-xs text-text-muted font-medium mb-1">
+            Up next in {autoplayCountdownRemaining}s
           </span>
           <h3 className="text-lg font-bold text-white max-w-md mb-6">
             {nextVideo.badge ? `${nextVideo.badge} - ` : ''}{nextVideo.title}
@@ -563,14 +712,14 @@ export const CustomVideoPlayer: React.FC = () => {
                 cancelAutoplayCountdown();
                 setCurrentVideoId(nextVideo._id);
               }}
-              className="px-5 py-2.5 rounded-lg bg-accent text-white font-semibold text-sm hover:bg-accent-hover transition-colors shadow-lg flex items-center gap-2"
+              className="px-5 py-2.5 rounded-lg bg-accent text-white font-semibold text-sm hover:bg-accent-hover transition-colors shadow-lg flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-accent"
             >
               <Play className="w-4 h-4" />
               Play Now
             </button>
             <button
               onClick={cancelAutoplayCountdown}
-              className="px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors"
+              className="px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
@@ -580,17 +729,17 @@ export const CustomVideoPlayer: React.FC = () => {
 
       {/* Course Complete Screen */}
       {isCourseComplete && (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-30 p-6 text-center animate-in zoom-in-95">
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-30 p-6 text-center motion-safe:animate-in motion-safe:zoom-in-95">
           <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center text-accent mb-4 border border-accent/40">
             <Sparkles className="w-8 h-8" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Course Complete! 🎉</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Course complete</h2>
           <p className="text-sm text-text-muted max-w-sm mb-6">
-            You've successfully finished all lessons in this course path.
+            You’ve successfully finished all lessons in this course path.
           </p>
           <button
             onClick={() => setCurrentView('library')}
-            className="px-5 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+            className="px-5 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors focus-visible:ring-2 focus-visible:ring-accent"
           >
             Back to Library
           </button>
@@ -619,7 +768,7 @@ export const CustomVideoPlayer: React.FC = () => {
           {/* Played Progress */}
           <div
             style={{ width: `${progressPercent}%` }}
-            className="absolute left-0 top-0 bottom-0 bg-accent rounded-full pointer-events-none transition-all duration-75"
+            className="absolute left-0 top-0 bottom-0 bg-accent rounded-full pointer-events-none"
           />
 
           {/* Scrubber Knob */}
@@ -729,9 +878,9 @@ export const CustomVideoPlayer: React.FC = () => {
               </button>
 
               {isSpeedMenuOpen && (
-                <div className="absolute bottom-9 right-0 w-36 bg-surface border border-border rounded-xl shadow-2xl p-1.5 z-40 animate-in fade-in zoom-in-95">
-                  <div className="text-[10px] uppercase font-bold text-text-dim px-2 py-1 border-b border-border mb-1">
-                    Playback Speed
+                <div className="absolute bottom-9 right-0 w-36 bg-surface border border-border rounded-xl shadow-2xl p-1.5 z-40 motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95">
+                  <div className="text-xs font-semibold text-text-muted px-2 py-1 border-b border-border mb-1">
+                    Playback speed
                   </div>
                   {SPEED_OPTIONS.map((speed) => (
                     <button

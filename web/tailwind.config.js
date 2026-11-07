@@ -22,6 +22,14 @@ export default {
           hover: 'var(--accent-hover)',
           subtle: 'var(--accent-subtle)',
           text: 'var(--accent-text)',
+        },
+        activity: {
+          0: 'var(--activity-level-0)',
+          1: 'var(--activity-level-1)',
+          2: 'var(--activity-level-2)',
+          3: 'var(--activity-level-3)',
+          4: 'var(--activity-level-4)',
+          border: 'var(--activity-border)'
         }
       },
       fontFamily: {
