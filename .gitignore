@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+*/node_modules/
+package-lock.json
+
+# Builds
+dist/
+*/dist/
+
+# Environment and secrets
+.env
+.env.local
+server/.env
+
+# Temporary / Agent logs
+.agents/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

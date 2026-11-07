@@ -1,0 +1,21 @@
+{
+  "name": "apna-college-player",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Course Player inspired by Apna College path player",
+  "scripts": {
+    "install:all": "npm install && npm run install:server && npm run install:web",
+    "install:server": "cd server && npm install",
+    "install:web": "cd web && npm install",
+    "build:web": "cd web && npm run build",
+    "build:server": "cd server && npm run build",
+    "build": "npm run build:web && npm run build:server",
+    "dev:server": "cd server && npm run dev",
+    "dev:web": "cd web && npm run dev",
+    "dev": "concurrently -n \"SERVER,WEB\" -c \"blue,magenta\" \"npm run dev:server\" \"npm run dev:web\"",
+    "start": "cd server && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
