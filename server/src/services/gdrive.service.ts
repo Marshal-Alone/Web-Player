@@ -9,6 +9,20 @@ export interface GDriveResolutionResult {
   error?: string;
 }
 
+// Known hardcoded Google Drive folders mapped to their respective course names and default paths
+export const KNOWN_GDRIVE_FOLDERS: Record<string, { name: string; defaultPath: string; keywords: string[] }> = {
+  '1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3': {
+    name: 'Apna College DSA',
+    defaultPath: 'G:\\My Drive\\Apna College DSA',
+    keywords: ['apna college dsa', 'dsa', 'alpha']
+  },
+  '1ibiPith7qMfWpeS3Vzh6YX747hBga8bs': {
+    name: 'Apna College Development',
+    defaultPath: 'G:\\My Drive\\Apna College Development',
+    keywords: ['apna college development', 'development', 'sigma']
+  }
+};
+
 // Extracts folder ID from URLs like:
 // https://drive.google.com/drive/folders/1aBcDeFgHiJkLmNoPqRsTuVwXyZ
 // https://drive.google.com/drive/u/0/folders/1aBcDeFgHiJkLmNoPqRsTuVwXyZ
@@ -30,42 +44,57 @@ export async function resolveGDriveUrlToLocalPath(driveUrlOrId: string): Promise
     return { isDriveUrl: false };
   }
 
-  let folderName: string | undefined;
+  // Fast-path: Check known hardcoded Google Drive folders
+  if (folderId && KNOWN_GDRIVE_FOLDERS[folderId]) {
+    const known = KNOWN_GDRIVE_FOLDERS[folderId];
+    if (fs.existsSync(known.defaultPath)) {
+      return {
+        isDriveUrl: true,
+        folderId,
+        folderName: known.name,
+        localPath: known.defaultPath
+      };
+    }
+  }
 
-  // 1. Attempt to fetch public web page to extract folder name from HTML <title>
-  try {
-    const url = `https://drive.google.com/drive/folders/${folderId}`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    });
+  let folderName: string | undefined = folderId && KNOWN_GDRIVE_FOLDERS[folderId] ? KNOWN_GDRIVE_FOLDERS[folderId].name : undefined;
 
-    if (res.ok) {
-      const html = await res.text();
-      // Match <meta property="og:title" content="..."> or <title>... – Google Drive</title>
-      const metaMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
-      if (metaMatch && metaMatch[1] && metaMatch[1].trim() !== 'Google Drive') {
-        folderName = metaMatch[1].trim();
-      } else {
-        const rawTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        if (rawTitle && rawTitle[1]) {
-          const cleaned = rawTitle[1]
-            .replace(/\s*[\u2013\u2014-]\s*Google\s*Drive.*$/i, '')
-            .trim();
-          if (
-            cleaned &&
-            cleaned.toLowerCase() !== 'google drive' &&
-            !cleaned.toLowerCase().includes('sign in')
-          ) {
-            folderName = cleaned;
+  // 1. Attempt to fetch public web page to extract folder name from HTML <title> if not already known
+  if (!folderName) {
+    try {
+      const url = `https://drive.google.com/drive/folders/${folderId}`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
+
+      if (res.ok) {
+        const html = await res.text();
+        // Match <meta property="og:title" content="..."> or <title>... – Google Drive</title>
+        const metaMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+        if (metaMatch && metaMatch[1] && metaMatch[1].trim() !== 'Google Drive') {
+          folderName = metaMatch[1].trim();
+        } else {
+          const rawTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          if (rawTitle && rawTitle[1]) {
+            const cleaned = rawTitle[1]
+              .replace(/\s*[\u2013\u2014-]\s*Google\s*Drive.*$/i, '')
+              .trim();
+            if (
+              cleaned &&
+              cleaned.toLowerCase() !== 'google drive' &&
+              !cleaned.toLowerCase().includes('sign in')
+            ) {
+              folderName = cleaned;
+            }
           }
         }
       }
+    } catch (err) {
+      // web fetch failed or offline
     }
-  } catch (err) {
-    // web fetch failed or offline
   }
 
   // 2. Scan mounted drives for matching local Google Drive folders

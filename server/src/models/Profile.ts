@@ -12,6 +12,7 @@ export interface IProfile extends Document {
   key: ProfileKey;
   name: string;
   rootPath: string;
+  gdriveUrl?: string;
   order: number;
   currentVideoId?: Schema.Types.ObjectId;
   lastScannedAt?: Date;
@@ -35,6 +36,11 @@ const ProfileSchema = new Schema<IProfile>(
       trim: true
     },
     rootPath: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    gdriveUrl: {
       type: String,
       default: '',
       trim: true

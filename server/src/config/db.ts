@@ -1,11 +1,12 @@
 import mongoose from 'mongoose';
-import { env } from './env.js';
+import { env, LOCAL_MONGO_URI, ATLAS_FALLBACK_MONGO_URI } from './env.js';
 
 let isConnecting = false;
 
 // Setup mongoose connection event logging
 mongoose.connection.on('connected', () => {
-  console.log('[MongoDB] Successfully connected to MongoDB Atlas');
+  const host = mongoose.connection.host;
+  console.log(`[MongoDB] Successfully connected to MongoDB database (${host})`);
 });
 
 mongoose.connection.on('error', (err) => {
@@ -16,7 +17,7 @@ mongoose.connection.on('disconnected', () => {
   console.warn('[MongoDB] Disconnected from MongoDB');
 });
 
-export async function connectDB(uri: string = env.MONGO_URI): Promise<typeof mongoose> {
+export async function connectDB(targetUri?: string): Promise<typeof mongoose> {
   if (mongoose.connection.readyState === 1) {
     return mongoose;
   }
@@ -35,19 +36,61 @@ export async function connectDB(uri: string = env.MONGO_URI): Promise<typeof mon
   }
 
   isConnecting = true;
+
+  // 1. If explicit URI passed or MONGO_URI is set in process.env
+  const explicitUri = targetUri || process.env.MONGO_URI;
+  if (explicitUri && !explicitUri.includes('127.0.0.1') && !explicitUri.includes('localhost')) {
+    try {
+      console.log(`[MongoDB] Connecting to configured MONGO_URI (${explicitUri.replace(/\/\/.*@/, '//***@')})...`);
+      const conn = await mongoose.connect(explicitUri, {
+        serverSelectionTimeoutMS: 8000,
+        connectTimeoutMS: 8000,
+        maxPoolSize: 10
+      });
+      isConnecting = false;
+      return conn;
+    } catch (err) {
+      console.warn('[MongoDB] Failed to connect to configured remote MONGO_URI. Attempting local MongoDB fallback...', err);
+    }
+  }
+
+  // 2. Default / Local-first: Attempt local MongoDB first
+  const localTarget = (explicitUri && (explicitUri.includes('127.0.0.1') || explicitUri.includes('localhost')))
+    ? explicitUri
+    : LOCAL_MONGO_URI;
+
   try {
-    const conn = await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+    console.log(`[MongoDB] Attempting to connect to local MongoDB at ${localTarget}...`);
+    const conn = await mongoose.connect(localTarget, {
+      serverSelectionTimeoutMS: 2000,
+      connectTimeoutMS: 2000,
       maxPoolSize: 10
     });
     isConnecting = false;
+    console.log(`[MongoDB] Successfully connected to local MongoDB (${localTarget})`);
     return conn;
-  } catch (error) {
+  } catch (localErr: any) {
+    if (ATLAS_FALLBACK_MONGO_URI) {
+      console.warn(`[MongoDB] Local MongoDB not reachable at ${localTarget}. Falling back to configured Atlas fallback...`);
+      try {
+        const conn = await mongoose.connect(ATLAS_FALLBACK_MONGO_URI, {
+          serverSelectionTimeoutMS: 10000,
+          connectTimeoutMS: 10000,
+          maxPoolSize: 10
+        });
+        isConnecting = false;
+        console.log('[MongoDB] Successfully connected to fallback MongoDB Atlas cluster');
+        return conn;
+      } catch (atlasErr) {
+        isConnecting = false;
+        console.error('[MongoDB] Both local MongoDB and fallback Atlas connection failed:', atlasErr);
+        throw atlasErr;
+      }
+    }
+
     isConnecting = false;
-    console.error('[MongoDB] Failed to connect to MongoDB:', error);
-    throw error;
+    console.error(`[MongoDB] Failed to connect to local MongoDB at ${localTarget}. Please ensure MongoDB service is running or set MONGO_URI in your environment.`);
+    throw localErr;
   }
 }
 

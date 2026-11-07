@@ -14,12 +14,12 @@ export interface AppEnv {
   NODE_ENV: string;
 }
 
-const DEFAULT_MONGO_URI =
-  'mongodb+srv://trylaptop2024:trylaptop2024@cluster0.q8qtgtu.mongodb.net/course_player?appName=Cluster0';
+export const LOCAL_MONGO_URI = 'mongodb://127.0.0.1:27017/course_player';
+export const ATLAS_FALLBACK_MONGO_URI = process.env.ATLAS_FALLBACK_MONGO_URI || '';
 
 export const env: AppEnv = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 4000,
   HOST: process.env.HOST || '127.0.0.1',
-  MONGO_URI: process.env.MONGO_URI || DEFAULT_MONGO_URI,
+  MONGO_URI: process.env.MONGO_URI || LOCAL_MONGO_URI,
   NODE_ENV: process.env.NODE_ENV || 'development'
 };

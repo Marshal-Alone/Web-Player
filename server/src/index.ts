@@ -7,7 +7,7 @@ async function startServer() {
   const app = buildApp();
 
   try {
-    console.log(`[Server] Connecting to database at ${env.MONGO_URI.replace(/:([^@]+)@/, ':****@')}...`);
+    console.log('[Server] Initializing database connection...');
     await connectDB();
 
     console.log('[Server] Seeding default profiles if needed...');
