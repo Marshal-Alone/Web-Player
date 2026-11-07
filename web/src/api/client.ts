@@ -6,6 +6,12 @@ export async function fetchProfiles() {
   return res.json();
 }
 
+export async function fetchDetectedDriveFolders() {
+  const res = await fetch(`${API_BASE}/gdrive/detect`);
+  if (!res.ok) return { detected: [] };
+  return res.json();
+}
+
 export async function updateProfile(id: string, data: { name?: string; rootPath?: string }) {
   const res = await fetch(`${API_BASE}/profiles/${id}`, {
     method: 'PUT',

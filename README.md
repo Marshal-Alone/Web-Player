@@ -48,10 +48,12 @@ Your course videos can live directly on Google Drive for Desktop (e.g. `G:\My Dr
 
 ## Core Features
 
-### 1. Dual Profiles
+### 1. Dual Profiles & Google Drive Link Support
 - **DSA** and **Development** profiles are auto-seeded on first run.
-- Switch instantly from the top navigation bar.
-- Configure folder paths for each profile in **Settings**.
+- **Direct Google Drive Links or Local Paths**:
+  - Enter your local path (`G:\My Drive\Apna College Development`) OR paste your browser's direct **Google Drive folder link** (`https://drive.google.com/drive/folders/...`)!
+  - The system automatically discovers the folder name from Google Drive and maps it to your local Google Drive for Desktop files.
+  - **Quick-Pick Chips**: Any course folders detected on your mounted `G:\My Drive` appear as 1-click auto-fill buttons in Settings!
 - **Validate Button**: Non-invasively checks that the folder exists and displays "Found N sections, M videos".
 - **Rescan Button**: Re-indexes the library and preserves watch progress even if files or folders are renamed (matched by `relPath` and `size + mtime`).
 - **Bulk Progress Marking**:

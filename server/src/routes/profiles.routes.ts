@@ -1,4 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import fs from 'fs';
+import path from 'path';
 import { Profile, Section, Video, Progress } from '../models/index.js';
 import { validateProfilePath, scanProfileLibrary } from '../services/scanner.service.js';
 
@@ -7,6 +9,31 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
   app.get('/api/profiles', async (_req, reply) => {
     const profiles = await Profile.find().sort({ order: 1 });
     return reply.send(profiles);
+  });
+
+  // Detect local Google Drive folders automatically
+  app.get('/api/gdrive/detect', async (_req, reply) => {
+    const candidateBases = ['G:\\My Drive', 'G:\\', 'H:\\My Drive', 'H:\\', 'F:\\My Drive'];
+    const detected: Array<{ name: string; fullPath: string }> = [];
+
+    for (const base of candidateBases) {
+      try {
+        if (fs.existsSync(base)) {
+          const entries = await fs.promises.readdir(base, { withFileTypes: true });
+          for (const e of entries) {
+            if (e.isDirectory()) {
+              detected.push({
+                name: e.name,
+                fullPath: path.join(base, e.name)
+              });
+            }
+          }
+          if (detected.length > 0) break;
+        }
+      } catch {}
+    }
+
+    return reply.send({ detected });
   });
 
   // Update profile

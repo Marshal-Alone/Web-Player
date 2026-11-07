@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Profile, Section, Video, IProfile, ISection, IVideo } from '../models/index.js';
+import { resolveGDriveUrlToLocalPath, extractGDriveFolderId } from './gdrive.service.js';
 
 // Natural numeric sorting comparator: e.g. "57. Section" before "100. Section", "672 - Lesson" before "1001 - Lesson"
 export function naturalCompare(a: string, b: string): number {
@@ -46,32 +47,58 @@ export interface ValidationResult {
   pathExists: boolean;
   sectionCount: number;
   videoCount: number;
+  resolvedPath?: string;
+  isDriveUrl?: boolean;
+  folderName?: string;
   error?: string;
 }
 
 /**
- * Non-invasive validation: checks directory existence and counts sections & videos
- * Reads file names and stats ONLY. Never reads file contents (protects Google Drive).
+ * Non-invasive validation: checks directory existence and counts sections & videos.
+ * Supports both local paths (e.g. G:\My Drive\Apna College...) AND direct Google Drive folder links!
  */
 export async function validateProfilePath(rootPath: string): Promise<ValidationResult> {
   if (!rootPath || !rootPath.trim()) {
     return { valid: false, pathExists: false, sectionCount: 0, videoCount: 0, error: 'Path is empty' };
   }
 
+  let effectivePath = rootPath.trim();
+  let isDriveUrl = false;
+  let folderName: string | undefined;
+
+  // Check if user passed a direct Google Drive link
+  if (extractGDriveFolderId(effectivePath) || effectivePath.includes('drive.google.com')) {
+    isDriveUrl = true;
+    const gdriveResult = await resolveGDriveUrlToLocalPath(effectivePath);
+    if (gdriveResult.localPath) {
+      effectivePath = gdriveResult.localPath;
+      folderName = gdriveResult.folderName;
+    } else {
+      return {
+        valid: false,
+        pathExists: false,
+        sectionCount: 0,
+        videoCount: 0,
+        isDriveUrl: true,
+        error: gdriveResult.error || 'Could not resolve Google Drive link to a local folder.'
+      };
+    }
+  }
+
   try {
-    const stat = await fs.promises.stat(rootPath);
+    const stat = await fs.promises.stat(effectivePath);
     if (!stat.isDirectory()) {
       return { valid: false, pathExists: false, sectionCount: 0, videoCount: 0, error: 'Path is not a directory' };
     }
 
-    const entries = await fs.promises.readdir(rootPath, { withFileTypes: true });
+    const entries = await fs.promises.readdir(effectivePath, { withFileTypes: true });
     let sectionCount = 0;
     let videoCount = 0;
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
         sectionCount++;
-        const subPath = path.join(rootPath, entry.name);
+        const subPath = path.join(effectivePath, entry.name);
         try {
           const subEntries = await fs.promises.readdir(subPath, { withFileTypes: true });
           for (const sub of subEntries) {
@@ -97,7 +124,10 @@ export async function validateProfilePath(rootPath: string): Promise<ValidationR
       valid: true,
       pathExists: true,
       sectionCount,
-      videoCount
+      videoCount,
+      resolvedPath: effectivePath,
+      isDriveUrl,
+      folderName
     };
   } catch (err: any) {
     return {
@@ -105,6 +135,7 @@ export async function validateProfilePath(rootPath: string): Promise<ValidationR
       pathExists: false,
       sectionCount: 0,
       videoCount: 0,
+      isDriveUrl,
       error: err.message || 'Directory not accessible'
     };
   }
@@ -125,7 +156,22 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
     throw new Error('Profile not found or rootPath not set');
   }
 
-  const rootPath = profile.rootPath;
+  let rootPath = profile.rootPath.trim();
+
+  // If user provided a direct Google Drive URL, resolve to local Google Drive for Desktop path
+  if (extractGDriveFolderId(rootPath) || rootPath.includes('drive.google.com')) {
+    const gdriveResult = await resolveGDriveUrlToLocalPath(rootPath);
+    if (gdriveResult.localPath) {
+      rootPath = gdriveResult.localPath;
+      profile.rootPath = rootPath;
+      await profile.save();
+    } else {
+      throw new Error(
+        gdriveResult.error ||
+          'Could not resolve Google Drive link to local drive. Please ensure Google Drive for Desktop is running.'
+      );
+    }
+  }
   const stat = await fs.promises.stat(rootPath);
   if (!stat.isDirectory()) {
     throw new Error(`Profile rootPath "${rootPath}" is not a directory`);
@@ -174,6 +220,7 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
 
   let globalSectionOrder = 0;
   let totalVideosCount = 0;
+  const videoBulkOps: any[] = [];
 
   // Process root videos into "General" section if any exist
   if (rootVideoEntries.length > 0) {
@@ -203,33 +250,44 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
       let match = videoByRelPath.get(relPath) || videoBySizeMtime.get(sizeMtimeKey);
 
       if (match) {
-        match.fullPath = fullPath;
-        match.relPath = relPath;
-        match.title = parsed.cleanTitle;
-        match.badge = parsed.badge;
-        match.order = lessonOrder++;
-        match.size = fileStat.size;
-        match.mtime = fileStat.mtime;
-        match.missing = false;
-        await match.save();
         foundVideoIds.add(match._id.toString());
-      } else {
-        const created = await Video.create({
-          sectionId: generalSection._id,
-          profileId: profile._id,
-          title: parsed.cleanTitle,
-          fileName: ventry.name,
-          badge: parsed.badge,
-          relPath,
-          fullPath,
-          order: lessonOrder++,
-          size: fileStat.size,
-          mtime: fileStat.mtime,
-          duration: null,
-          missing: false,
-          hasSubtitles: false
+        videoBulkOps.push({
+          updateOne: {
+            filter: { _id: match._id },
+            update: {
+              $set: {
+                fullPath,
+                relPath,
+                title: parsed.cleanTitle,
+                badge: parsed.badge,
+                order: lessonOrder++,
+                size: fileStat.size,
+                mtime: fileStat.mtime,
+                missing: false
+              }
+            }
+          }
         });
-        foundVideoIds.add(created._id.toString());
+      } else {
+        videoBulkOps.push({
+          insertOne: {
+            document: {
+              sectionId: generalSection._id,
+              profileId: profile._id,
+              title: parsed.cleanTitle,
+              fileName: ventry.name,
+              badge: parsed.badge,
+              relPath,
+              fullPath,
+              order: lessonOrder++,
+              size: fileStat.size,
+              mtime: fileStat.mtime,
+              duration: null,
+              missing: false,
+              hasSubtitles: false
+            }
+          }
+        });
       }
       totalVideosCount++;
     }
@@ -240,26 +298,7 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
     const sectionRelPath = dir.name;
     const sectionFullPath = path.join(rootPath, dir.name);
     const parsedSection = parseNameAndBadge(dir.name, false);
-
-    let sectionDoc = sectionByRelPath.get(sectionRelPath);
-    if (!sectionDoc) {
-      sectionDoc = await Section.create({
-        profileId: profile._id,
-        name: parsedSection.cleanTitle,
-        folderName: dir.name,
-        order: globalSectionOrder++,
-        badge: parsedSection.badge,
-        relPath: sectionRelPath,
-        videoCount: 0,
-        totalDuration: 0
-      });
-      sectionByRelPath.set(sectionRelPath, sectionDoc);
-    } else {
-      sectionDoc.name = parsedSection.cleanTitle;
-      sectionDoc.order = globalSectionOrder++;
-      sectionDoc.badge = parsedSection.badge;
-      await sectionDoc.save();
-    }
+    const currentOrder = globalSectionOrder++;
 
     // Read files inside this section
     const subEntries = await fs.promises.readdir(sectionFullPath, { withFileTypes: true });
@@ -280,8 +319,27 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
 
     // Natural sort videos
     videoFiles.sort((a, b) => naturalCompare(a.name, b.name));
-    sectionDoc.videoCount = videoFiles.length;
-    await sectionDoc.save();
+
+    let sectionDoc = sectionByRelPath.get(sectionRelPath);
+    if (!sectionDoc) {
+      sectionDoc = await Section.create({
+        profileId: profile._id,
+        name: parsedSection.cleanTitle,
+        folderName: dir.name,
+        order: currentOrder,
+        badge: parsedSection.badge,
+        relPath: sectionRelPath,
+        videoCount: videoFiles.length,
+        totalDuration: 0
+      });
+      sectionByRelPath.set(sectionRelPath, sectionDoc);
+    } else {
+      sectionDoc.name = parsedSection.cleanTitle;
+      sectionDoc.order = currentOrder;
+      sectionDoc.badge = parsedSection.badge;
+      sectionDoc.videoCount = videoFiles.length;
+      await sectionDoc.save();
+    }
 
     let videoOrder = 0;
     for (const vfile of videoFiles) {
@@ -296,50 +354,64 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
       let match = videoByRelPath.get(relVideoPath) || videoBySizeMtime.get(sizeMtimeKey);
 
       if (match) {
-        match.fullPath = fullVideoPath;
-        match.relPath = relVideoPath;
-        match.title = parsedVideo.cleanTitle;
-        match.badge = parsedVideo.badge;
-        match.order = videoOrder++;
-        match.size = vstat.size;
-        match.mtime = vstat.mtime;
-        match.sectionId = sectionDoc._id;
-        match.missing = false;
-        if (subPath) {
-          match.hasSubtitles = true;
-          match.subtitlePath = subPath;
-        }
-        await match.save();
         foundVideoIds.add(match._id.toString());
-      } else {
-        const newVid = await Video.create({
-          sectionId: sectionDoc._id,
-          profileId: profile._id,
-          title: parsedVideo.cleanTitle,
-          fileName: vfile.name,
-          badge: parsedVideo.badge,
-          relPath: relVideoPath,
-          fullPath: fullVideoPath,
-          order: videoOrder++,
-          size: vstat.size,
-          mtime: vstat.mtime,
-          duration: null,
-          missing: false,
-          hasSubtitles: !!subPath,
-          subtitlePath: subPath || undefined
+        videoBulkOps.push({
+          updateOne: {
+            filter: { _id: match._id },
+            update: {
+              $set: {
+                fullPath: fullVideoPath,
+                relPath: relVideoPath,
+                title: parsedVideo.cleanTitle,
+                badge: parsedVideo.badge,
+                order: videoOrder++,
+                size: vstat.size,
+                mtime: vstat.mtime,
+                sectionId: sectionDoc._id,
+                missing: false,
+                hasSubtitles: !!subPath,
+                subtitlePath: subPath || undefined
+              }
+            }
+          }
         });
-        foundVideoIds.add(newVid._id.toString());
+      } else {
+        videoBulkOps.push({
+          insertOne: {
+            document: {
+              sectionId: sectionDoc._id,
+              profileId: profile._id,
+              title: parsedVideo.cleanTitle,
+              fileName: vfile.name,
+              badge: parsedVideo.badge,
+              relPath: relVideoPath,
+              fullPath: fullVideoPath,
+              order: videoOrder++,
+              size: vstat.size,
+              mtime: vstat.mtime,
+              duration: null,
+              missing: false,
+              hasSubtitles: !!subPath,
+              subtitlePath: subPath || undefined
+            }
+          }
+        });
       }
       totalVideosCount++;
     }
   }
 
-  // Mark missing videos that were not encountered in this scan (keeps their progress intact)
-  for (const v of existingVideos) {
-    if (!foundVideoIds.has(v._id.toString())) {
-      v.missing = true;
-      await v.save();
-    }
+  // Execute bulk operations in MongoDB
+  if (videoBulkOps.length > 0) {
+    await Video.bulkWrite(videoBulkOps, { ordered: false });
+  }
+
+  // Mark missing videos in bulk (preserves watch progress)
+  const missingIds = existingVideos
+    .filter((v) => !foundVideoIds.has(v._id.toString()))
+    .map((v) => v._id);
+  if (missingIds.length > 0) {
+    await Video.updateMany({ _id: { $in: missingIds } }, { $set: { missing: true } });
   }
 
   // Update profile stats & scan timestamp

@@ -9,7 +9,8 @@ import {
   fetchSettings,
   updateSettings,
   bulkMarkProgress,
-  fetchLibrary
+  fetchLibrary,
+  fetchDetectedDriveFolders
 } from '../../api/client.js';
 import {
   Folder,
@@ -21,7 +22,9 @@ import {
   Info,
   CheckCheck,
   RotateCcw,
-  ListChecks
+  ListChecks,
+  Link2,
+  HardDrive
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -33,6 +36,7 @@ export const SettingsPage: React.FC = () => {
   const [validating, setValidating] = useState<{ [id: string]: boolean }>({});
   const [scanning, setScanning] = useState<{ [id: string]: boolean }>({});
   const [scanStatus, setScanStatus] = useState<{ [id: string]: string }>({});
+  const [detectedFolders, setDetectedFolders] = useState<Array<{ name: string; fullPath: string }>>([]);
 
   const [settingsData, setSettingsData] = useState({
     autoplay: true,
@@ -62,6 +66,12 @@ export const SettingsPage: React.FC = () => {
       const current = data.find((p: any) => p.key === activeProfileKey) || data[0];
       if (current) {
         setSelectedBulkProfileId(current._id);
+      }
+    });
+
+    fetchDetectedDriveFolders().then((res) => {
+      if (res?.detected) {
+        setDetectedFolders(res.detected);
       }
     });
 
@@ -112,6 +122,12 @@ export const SettingsPage: React.FC = () => {
       await updateProfile(profileId, { rootPath: paths[profileId] });
       const res = await validateProfilePath(profileId, paths[profileId]);
       setValResults((prev) => ({ ...prev, [profileId]: res }));
+
+      // If it resolved from a Google Drive URL to a local path, automatically offer or set the resolved path
+      if (res.resolvedPath && res.isDriveUrl) {
+        setPaths((prev) => ({ ...prev, [profileId]: res.resolvedPath }));
+        await updateProfile(profileId, { rootPath: res.resolvedPath });
+      }
     } catch (err: any) {
       setValResults((prev) => ({
         ...prev,
@@ -223,7 +239,7 @@ export const SettingsPage: React.FC = () => {
       <div className="border-b border-border pb-4">
         <h1 className="text-2xl font-bold text-text-main tracking-tight">Settings</h1>
         <p className="text-xs text-text-muted mt-1">
-          Configure profile course directories, playback rules, bulk progress, and local indexing.
+          Configure profile course directories, Google Drive links, bulk progress, and playback rules.
         </p>
       </div>
 
@@ -231,11 +247,11 @@ export const SettingsPage: React.FC = () => {
       <div className="p-4 rounded-xl bg-accent/10 border border-accent/20 flex items-start gap-3 text-xs text-text-main">
         <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <p className="font-semibold text-accent-text">Google Drive for Desktop Optimization</p>
+          <p className="font-semibold text-accent-text">Google Drive for Desktop Integration</p>
           <p className="text-text-muted leading-relaxed">
-            For seamless seeking and instant playback, right-click your course folder in File Explorer and select{' '}
-            <strong className="text-text-main">Google Drive → Offline access → Available offline</strong>.
-            The scanner never downloads file bodies during scans to keep your bandwidth safe.
+            You can enter your local folder path (e.g.{' '}
+            <strong className="text-text-main font-mono">G:\My Drive\Apna College Development</strong>) OR paste your direct{' '}
+            <strong className="text-text-main font-mono">Google Drive folder link</strong> from your browser! The system automatically resolves Google Drive links to your local files without downloading.
           </p>
         </div>
       </div>
@@ -243,7 +259,7 @@ export const SettingsPage: React.FC = () => {
       {/* Profiles Directory Settings */}
       <div className="space-y-6">
         <h2 className="text-sm font-bold uppercase tracking-wider text-text-dim">
-          Course Profiles & Root Folders
+          Course Profiles & Paths / Links
         </h2>
 
         {profiles.map((profile) => {
@@ -266,24 +282,24 @@ export const SettingsPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <label className="text-xs font-semibold text-text-muted">
-                  Folder Path on Disk (e.g.{' '}
-                  <code className="text-[11px] bg-surface px-1 py-0.5 rounded text-text-main">
-                    G:\My Drive\Apna College {profile.name}
-                  </code>
-                  )
+                  Folder Path or Google Drive Folder Link:
                 </label>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Folder className="w-4 h-4 text-text-dim absolute left-3 top-1/2 -translate-y-1/2" />
+                    {paths[profile._id]?.startsWith('http') ? (
+                      <Link2 className="w-4 h-4 text-accent absolute left-3 top-1/2 -translate-y-1/2" />
+                    ) : (
+                      <Folder className="w-4 h-4 text-text-dim absolute left-3 top-1/2 -translate-y-1/2" />
+                    )}
                     <input
                       type="text"
                       value={paths[profile._id] ?? ''}
                       onChange={(e) =>
                         setPaths({ ...paths, [profile._id]: e.target.value })
                       }
-                      placeholder={`Enter full path to ${profile.name} course directory`}
+                      placeholder={`Paste G:\\My Drive\\... OR https://drive.google.com/drive/folders/...`}
                       className="w-full bg-surface border border-border rounded-xl pl-9 pr-3 py-2 text-xs font-mono text-text-main focus:border-accent focus:outline-none"
                     />
                   </div>
@@ -305,30 +321,70 @@ export const SettingsPage: React.FC = () => {
                     <span>{isScan ? 'Scanning…' : 'Rescan'}</span>
                   </button>
                 </div>
+
+                {/* Quick Auto-Fill Chips from Detected G: Drive */}
+                {detectedFolders.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[10px] text-text-dim font-semibold uppercase flex items-center gap-1">
+                      <HardDrive className="w-3 h-3" />
+                      Detected on G:\ Drive:
+                    </span>
+                    {detectedFolders
+                      .filter((f) =>
+                        profile.key === 'dsa'
+                          ? f.name.toLowerCase().includes('dsa')
+                          : f.name.toLowerCase().includes('dev')
+                      )
+                      .concat(detectedFolders.slice(0, 3))
+                      .filter((f, idx, arr) => arr.findIndex((x) => x.fullPath === f.fullPath) === idx)
+                      .slice(0, 3)
+                      .map((f) => (
+                        <button
+                          key={f.fullPath}
+                          type="button"
+                          onClick={() => {
+                            setPaths({ ...paths, [profile._id]: f.fullPath });
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-surface border border-border hover:border-accent text-[11px] font-mono text-text-muted hover:text-text-main transition-colors"
+                        >
+                          {f.name}
+                        </button>
+                      ))}
+                  </div>
+                )}
               </div>
 
               {/* Validation Result Box */}
               {val && (
                 <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                  className={`p-3 rounded-xl text-xs flex flex-col gap-1.5 ${
                     val.valid
                       ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
                       : 'bg-red-500/10 border border-red-500/20 text-red-400'
                   }`}
                 >
-                  {val.valid ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 shrink-0" />
-                      <span>
-                        Found <strong>{val.sectionCount}</strong> sections and{' '}
-                        <strong>{val.videoCount}</strong> lessons ready to index.
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{val.error || 'Folder not accessible or does not exist'}</span>
-                    </>
+                  <div className="flex items-center gap-2">
+                    {val.valid ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Found <strong>{val.sectionCount}</strong> sections and{' '}
+                          <strong>{val.videoCount}</strong> lessons ready to index!
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{val.error || 'Folder or link not accessible'}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {val.isDriveUrl && val.resolvedPath && (
+                    <div className="text-[11px] text-text-muted pl-6 font-mono">
+                      Resolved Google Drive Link to local path:{' '}
+                      <strong className="text-text-main">{val.resolvedPath}</strong>
+                    </div>
                   )}
                 </div>
               )}
@@ -344,7 +400,7 @@ export const SettingsPage: React.FC = () => {
         })}
       </div>
 
-      {/* NEW: Bulk Marking Videos as Watched Section */}
+      {/* Bulk Marking Videos as Watched Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wider text-text-dim flex items-center gap-2">

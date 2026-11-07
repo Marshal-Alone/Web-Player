@@ -18,6 +18,8 @@ All notable milestones and architectural implementations completed for the Local
 - Built rename-resilient file matcher using `relPath` and fallback to `size + mtime` so progress is never lost.
 - Flagged missing videos with `missing: true` preserving watch progress.
 - Built profile path configuration with non-invasive `Validate` button and `Rescan` button in Settings.
+- Added direct Google Drive folder URL support (`https://drive.google.com/drive/folders/...`) with automatic folder resolution to local Google Drive for Desktop files.
+- Added auto-detection chips for mounted `G:\My Drive` course directories.
 - Added instant top navigation profile switcher.
 - Added **Bulk Progress Marking** tools in Settings: mark entire profile as watched, reset all progress, mark specific section as watched, or mark watched up to any selected lesson.
 
