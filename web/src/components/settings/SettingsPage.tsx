@@ -58,7 +58,7 @@ export const SettingsPage: React.FC = () => {
       setProfiles(data);
       const initialPaths: { [id: string]: string } = {};
       data.forEach((p: any) => {
-        initialPaths[p._id] = p.rootPath || '';
+        initialPaths[p._id] = p.gdriveUrl || p.rootPath || '';
       });
       setPaths(initialPaths);
 
@@ -119,15 +119,13 @@ export const SettingsPage: React.FC = () => {
     setValResults((prev) => ({ ...prev, [profileId]: null }));
 
     try {
-      await updateProfile(profileId, { rootPath: paths[profileId] });
-      const res = await validateProfilePath(profileId, paths[profileId]);
+      const enteredPath = paths[profileId] ?? '';
+      await updateProfile(profileId, { rootPath: enteredPath });
+      const res = await validateProfilePath(profileId, enteredPath);
       setValResults((prev) => ({ ...prev, [profileId]: res }));
 
-      // If it resolved from a Google Drive URL to a local path, automatically offer or set the resolved path
-      if (res.resolvedPath && res.isDriveUrl) {
-        setPaths((prev) => ({ ...prev, [profileId]: res.resolvedPath }));
-        await updateProfile(profileId, { rootPath: res.resolvedPath });
-      }
+      const updated = await fetchProfiles();
+      setProfiles(updated);
     } catch (err: any) {
       setValResults((prev) => ({
         ...prev,
@@ -143,7 +141,8 @@ export const SettingsPage: React.FC = () => {
     setScanStatus((prev) => ({ ...prev, [profileId]: 'Scanning library non-invasively...' }));
 
     try {
-      await updateProfile(profileId, { rootPath: paths[profileId] });
+      const enteredPath = paths[profileId] ?? '';
+      await updateProfile(profileId, { rootPath: enteredPath });
       const res = await scanProfile(profileId);
       setScanStatus((prev) => ({
         ...prev,

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { Profile, IProfile } from '../models/Profile.js';
 import { scanProfileLibrary } from './scanner.service.js';
+import { getEffectiveLocalPath } from './gdrive.service.js';
 
 export interface SeedResult {
   seeded: boolean;
@@ -12,15 +13,17 @@ export const DEFAULT_PROFILES = [
     key: 'dsa' as const,
     name: 'DSA',
     order: 0,
-    rootPath: 'G:\\My Drive\\Apna College DSA',
-    gdriveUrl: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link'
+    rootPath: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
+    gdriveUrl: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
+    resolvedLocalPath: 'G:\\My Drive\\Apna College DSA'
   },
   {
     key: 'development' as const,
     name: 'Development',
     order: 1,
-    rootPath: 'G:\\My Drive\\Apna College Development',
-    gdriveUrl: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+    rootPath: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
+    gdriveUrl: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
+    resolvedLocalPath: 'G:\\My Drive\\Apna College Development'
   }
 ];
 
@@ -38,6 +41,7 @@ export async function seedDefaultProfiles(): Promise<SeedResult> {
         name: def.name,
         rootPath: def.rootPath,
         gdriveUrl: def.gdriveUrl,
+        resolvedLocalPath: def.resolvedLocalPath,
         order: def.order,
         stats: {
           totalSections: 0,
@@ -48,25 +52,30 @@ export async function seedDefaultProfiles(): Promise<SeedResult> {
       createdAny = true;
       console.log(`[Seeder] Seeded default profile: ${def.name} (${def.key}) -> ${def.rootPath}`);
     } else {
-      // Update with hardcoded fallback paths and URLs if missing or empty
-      if (!profile.rootPath || profile.rootPath.trim() === '') {
+      // Ensure Google Drive link is set as default path
+      if (!profile.rootPath || !profile.rootPath.startsWith('http')) {
         profile.rootPath = def.rootPath;
         modified = true;
       }
-      if (!profile.gdriveUrl || profile.gdriveUrl.trim() === '') {
+      if (!profile.gdriveUrl || !profile.gdriveUrl.startsWith('http')) {
         profile.gdriveUrl = def.gdriveUrl;
+        modified = true;
+      }
+      if (!profile.resolvedLocalPath) {
+        profile.resolvedLocalPath = def.resolvedLocalPath;
         modified = true;
       }
       if (modified) {
         await profile.save();
-        console.log(`[Seeder] Updated profile ${profile.name} with hardcoded defaults`);
+        console.log(`[Seeder] Synchronized profile ${profile.name} with Google Drive link: ${def.rootPath}`);
       }
     }
 
     profiles.push(profile);
 
-    // If directory exists locally and profile has 0 videos, trigger background initial scan
-    if (profile.rootPath && fs.existsSync(profile.rootPath) && (!profile.stats || profile.stats.totalVideos === 0)) {
+    // If local directory exists and profile has 0 videos, trigger background initial scan
+    const localEffective = getEffectiveLocalPath(profile);
+    if (localEffective && fs.existsSync(localEffective) && (!profile.stats || profile.stats.totalVideos === 0)) {
       const pid = profile._id.toString();
       const pName = profile.name;
       scanProfileLibrary(pid)

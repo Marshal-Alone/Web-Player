@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import { Video, Section, Profile, Progress, WatchLog } from '../models/index.js';
+import { getEffectiveLocalPath } from '../services/gdrive.service.js';
 
 export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // Get video details with previous & next navigation
@@ -70,13 +71,18 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }
 
     const profile = await Profile.findById(video.profileId);
-    if (!profile || !profile.rootPath) {
+    if (!profile) {
+      return reply.status(400).send({ error: 'Profile not found' });
+    }
+
+    const effectiveRoot = getEffectiveLocalPath(profile);
+    if (!effectiveRoot) {
       return reply.status(400).send({ error: 'Profile root path not configured' });
     }
 
     // Security check: verify path is inside rootPath
     const resolvedPath = path.resolve(video.fullPath);
-    const resolvedRoot = path.resolve(profile.rootPath);
+    const resolvedRoot = path.resolve(effectiveRoot);
     if (!resolvedPath.startsWith(resolvedRoot)) {
       return reply.status(403).send({ error: 'Access denied: file outside profile root' });
     }

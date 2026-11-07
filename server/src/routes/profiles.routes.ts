@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { Profile, Section, Video, Progress } from '../models/index.js';
 import { validateProfilePath, scanProfileLibrary } from '../services/scanner.service.js';
+import { extractGDriveFolderId, resolveGDriveUrlToLocalPath } from '../services/gdrive.service.js';
 
 export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // Get all profiles
@@ -37,11 +38,11 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
   });
 
   // Update profile
-  app.put<{ Params: { id: string }; Body: { name?: string; rootPath?: string } }>(
+  app.put<{ Params: { id: string }; Body: { name?: string; rootPath?: string; gdriveUrl?: string } }>(
     '/api/profiles/:id',
     async (req, reply) => {
       const { id } = req.params;
-      const { name, rootPath } = req.body || {};
+      const { name, rootPath, gdriveUrl } = req.body || {};
 
       const profile = await Profile.findById(id);
       if (!profile) {
@@ -49,7 +50,19 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
       }
 
       if (name !== undefined) profile.name = name;
-      if (rootPath !== undefined) profile.rootPath = rootPath;
+      if (rootPath !== undefined) {
+        profile.rootPath = rootPath.trim();
+        if (extractGDriveFolderId(profile.rootPath) || profile.rootPath.includes('drive.google.com')) {
+          profile.gdriveUrl = profile.rootPath;
+          const resolved = await resolveGDriveUrlToLocalPath(profile.rootPath);
+          if (resolved.localPath) {
+            profile.resolvedLocalPath = resolved.localPath;
+          }
+        } else if (profile.rootPath) {
+          profile.resolvedLocalPath = profile.rootPath;
+        }
+      }
+      if (gdriveUrl !== undefined) profile.gdriveUrl = gdriveUrl;
 
       await profile.save();
       return reply.send(profile);

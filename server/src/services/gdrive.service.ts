@@ -23,6 +23,27 @@ export const KNOWN_GDRIVE_FOLDERS: Record<string, { name: string; defaultPath: s
   }
 };
 
+/**
+ * Returns the effective local filesystem path for a profile, resolving
+ * Google Drive links against the local filesystem if needed.
+ */
+export function getEffectiveLocalPath(profile: { rootPath?: string; resolvedLocalPath?: string; gdriveUrl?: string }): string {
+  if (profile.resolvedLocalPath && fs.existsSync(profile.resolvedLocalPath)) {
+    return profile.resolvedLocalPath;
+  }
+  if (profile.rootPath && !profile.rootPath.startsWith('http') && fs.existsSync(profile.rootPath)) {
+    return profile.rootPath;
+  }
+  const checkUrl = (profile.rootPath?.startsWith('http') ? profile.rootPath : '') || profile.gdriveUrl || '';
+  if (checkUrl) {
+    const fid = extractGDriveFolderId(checkUrl);
+    if (fid && KNOWN_GDRIVE_FOLDERS[fid] && fs.existsSync(KNOWN_GDRIVE_FOLDERS[fid].defaultPath)) {
+      return KNOWN_GDRIVE_FOLDERS[fid].defaultPath;
+    }
+  }
+  return profile.resolvedLocalPath || profile.rootPath || '';
+}
+
 // Extracts folder ID from URLs like:
 // https://drive.google.com/drive/folders/1aBcDeFgHiJkLmNoPqRsTuVwXyZ
 // https://drive.google.com/drive/u/0/folders/1aBcDeFgHiJkLmNoPqRsTuVwXyZ

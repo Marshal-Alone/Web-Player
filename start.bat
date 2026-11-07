@@ -52,11 +52,22 @@ if not exist "server\dist\" (
     cd ..
 )
 
+:: Check if server is already running on port 4000
+netstat -ano | findstr /R ":4000.*LISTENING" >nul 2>nul
+if %errorlevel% equ 0 (
+    echo.
+    echo [Info] Apna Course Player server is already running on http://localhost:4000!
+    echo [Info] Opening player in your default browser...
+    echo.
+    start "" http://localhost:4000
+    exit /b 0
+)
+
 echo.
 echo [Starting] Launching Course Player on http://localhost:4000...
 echo.
 
-:: Open browser after a short delay
+:: Open browser
 start "" http://localhost:4000
 
 :: Run the server

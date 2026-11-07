@@ -162,9 +162,10 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
   if (extractGDriveFolderId(rootPath) || rootPath.includes('drive.google.com')) {
     const gdriveResult = await resolveGDriveUrlToLocalPath(rootPath);
     if (gdriveResult.localPath) {
-      rootPath = gdriveResult.localPath;
-      profile.rootPath = rootPath;
+      profile.resolvedLocalPath = gdriveResult.localPath;
+      profile.gdriveUrl = rootPath;
       await profile.save();
+      rootPath = gdriveResult.localPath;
     } else {
       throw new Error(
         gdriveResult.error ||
