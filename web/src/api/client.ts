@@ -128,8 +128,9 @@ function validateProfilePathLocally(id: string, rootPath?: string) {
 export async function scanProfile(id: string) {
   const profiles = localStore.getLocalProfiles();
   const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
-  const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id);
-  const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id);
+  const targetId = prof?.key === 'dsa' ? '6aef1ffa40ee2964803d0e32' : '6aef1ffa40ee2964803d0e46';
+  const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id || s.profileId === targetId);
+  const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id || v.profileId === targetId);
   const localScanRes = {
     success: true,
     sectionsAdded: sections.length,
@@ -140,8 +141,13 @@ export async function scanProfile(id: string) {
     return localScanRes;
   }
   try {
-    return await safeFetchJson(`${API_BASE}/profiles/${id}/scan`, { method: 'POST' });
-  } catch {
+    return await safeFetchJson(`${API_BASE}/profiles/${id}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+  } catch (err) {
+    console.warn('[Scan] Remote scan error, falling back to local curriculum:', err);
     return localScanRes;
   }
 }
@@ -253,7 +259,11 @@ export async function toggleComplete(id: string) {
     return localRes;
   }
   try {
-    return await safeFetchJson(`${API_BASE}/videos/${id}/toggle-complete`, { method: 'PUT' });
+    return await safeFetchJson(`${API_BASE}/videos/${id}/toggle-complete`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
   } catch {
     return localRes;
   }

@@ -28,6 +28,20 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
     credentials: true
   });
 
+  // Support various content-types or empty bodies on POST/PUT requests
+  app.addContentTypeParser(
+    ['text/plain', 'application/x-www-form-urlencoded', 'application/octet-stream'],
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        const parsed = body && typeof body === 'string' && body.trim() ? JSON.parse(body) : {};
+        done(null, parsed);
+      } catch {
+        done(null, {});
+      }
+    }
+  );
+
   // Register API Routes
   app.register(healthRoutes);
   app.register(profileRoutes);
