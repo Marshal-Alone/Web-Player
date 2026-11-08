@@ -33,7 +33,10 @@ export async function fetchProfiles() {
   }
   try {
     const data = await safeFetchJson(`${API_BASE}/profiles`);
-    if (Array.isArray(data) && data.length > 0) return data;
+    if (Array.isArray(data) && data.length > 0) {
+      localStore.saveLocalProfiles(data);
+      return data;
+    }
   } catch {}
   return localStore.getLocalProfiles();
 }
@@ -59,17 +62,29 @@ export async function fetchDetectedDriveFolders() {
   }
 }
 
-export async function updateProfile(id: string, data: { name?: string; rootPath?: string }) {
-  const localRes = localStore.updateLocalProfile(id, data);
+export async function updateProfile(id: string, data: { name?: string; rootPath?: string; key?: any }) {
+  let localRes: any = null;
+  try {
+    localRes = localStore.updateLocalProfile(id, data);
+  } catch (err) {
+    console.warn('Could not update local profile cache:', err);
+  }
+
   if (isStandaloneMode) {
     return localRes;
   }
   try {
-    return await safeFetchJson(`${API_BASE}/profiles/${id}`, {
+    const remote = await safeFetchJson(`${API_BASE}/profiles/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (remote && remote._id) {
+      try {
+        localStore.updateLocalProfile(remote._id, remote);
+      } catch {}
+    }
+    return remote;
   } catch {
     return localRes;
   }

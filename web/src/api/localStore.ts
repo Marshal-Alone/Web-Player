@@ -41,12 +41,49 @@ export function getLocalProfiles(): Profile[] {
   return defaults;
 }
 
+export function saveLocalProfiles(profiles: Profile[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+  } catch {}
+}
+
 export function updateLocalProfile(id: string, updates: Partial<Profile>): Profile {
   const profiles = getLocalProfiles();
-  const index = profiles.findIndex((p) => p._id === id || p.key === id);
-  if (index === -1) throw new Error('Profile not found');
+  let index = profiles.findIndex((p) => p._id === id || p.key === id);
+  if (index === -1 && (updates as any)?.key) {
+    index = profiles.findIndex((p) => p.key === (updates as any).key);
+  }
+  if (index === -1) {
+    const clean = String(id).toLowerCase();
+    if (clean.includes('dsa') || (updates.name && updates.name.toLowerCase().includes('dsa'))) {
+      index = profiles.findIndex((p) => p.key === 'dsa');
+    } else if (clean.includes('dev') || (updates.name && updates.name.toLowerCase().includes('dev'))) {
+      index = profiles.findIndex((p) => p.key === 'development');
+    }
+  }
+  if (index === -1) {
+    if (profiles.length > 0) {
+      index = 0;
+    } else {
+      const newProf: Profile = {
+        _id: id,
+        name: updates.name || 'Course',
+        key: 'dsa',
+        rootPath: updates.rootPath || '',
+        order: 0,
+        stats: { totalSections: 0, totalVideos: 0, totalDuration: 0 },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      profiles.push(newProf);
+      saveLocalProfiles(profiles);
+      return newProf;
+    }
+  }
+
   profiles[index] = { ...profiles[index], ...updates };
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+  saveLocalProfiles(profiles);
   return profiles[index];
 }
 
@@ -110,11 +147,26 @@ export function toggleLocalVideoComplete(videoId: string): { videoId: string; co
 // --- LIBRARY ---
 export function getLocalLibrary(profileId: string) {
   const profiles = getLocalProfiles();
-  const profile = profiles.find((p) => p._id === profileId || p.key === profileId) || profiles[0];
+  const profile =
+    profiles.find((p) => p._id === profileId || p.key === profileId) ||
+    (String(profileId).toLowerCase().includes('dsa')
+      ? profiles.find((p) => p.key === 'dsa')
+      : profiles.find((p) => p.key === 'development')) ||
+    profiles[0];
   const targetId = profile?._id;
 
-  const sections = (curriculumData.sections as Section[]).filter((s) => s.profileId === targetId);
-  const videos = (curriculumData.videos as Video[]).filter((v) => v.profileId === targetId);
+  const isDsa =
+    profile?.key === 'dsa' ||
+    String(profileId).toLowerCase().includes('dsa') ||
+    targetId === '6aef1ffa40ee2964803d0e32';
+  const curriculumProfileId = isDsa ? '6aef1ffa40ee2964803d0e32' : '6aef1ffa40ee2964803d0e46';
+
+  const sections = (curriculumData.sections as Section[]).filter(
+    (s) => s.profileId === targetId || s.profileId === curriculumProfileId
+  );
+  const videos = (curriculumData.videos as Video[]).filter(
+    (v) => v.profileId === targetId || v.profileId === curriculumProfileId
+  );
 
   let totalCompleted = 0;
   const sectionsWithVideos = sections.map((sec) => {

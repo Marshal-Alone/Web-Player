@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import { Profile, Section, Video, Progress } from '../models/index.js';
-import { validateProfilePath, scanProfileLibrary } from '../services/scanner.service.js';
+import { validateProfilePath, scanProfileLibrary, findProfileByIdOrKey } from '../services/scanner.service.js';
 import { extractGDriveFolderId, resolveGDriveUrlToLocalPath } from '../services/gdrive.service.js';
 
 export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
@@ -44,7 +44,7 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
       const { id } = req.params;
       const { name, rootPath, gdriveUrl } = req.body || {};
 
-      const profile = await Profile.findById(id);
+      const profile = await findProfileByIdOrKey(id);
       if (!profile) {
         return reply.status(404).send({ error: 'Profile not found' });
       }
@@ -74,13 +74,13 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
     '/api/profiles/:id/validate',
     async (req, reply) => {
       const { id } = req.params;
-      const profile = await Profile.findById(id);
+      const profile = await findProfileByIdOrKey(id);
       if (!profile) {
         return reply.status(404).send({ error: 'Profile not found' });
       }
 
-      const pathToValidate = req.body?.rootPath ?? profile.rootPath;
-      const result = await validateProfilePath(pathToValidate);
+      const pathToValidate = req.body?.rootPath ?? profile.resolvedLocalPath ?? profile.rootPath;
+      const result = await validateProfilePath(pathToValidate, profile.key);
       return reply.send(result);
     }
   );
@@ -99,7 +99,7 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
   // Get library tree with sections, videos and user progress
   app.get<{ Params: { id: string } }>('/api/profiles/:id/library', async (req, reply) => {
     const { id } = req.params;
-    const profile = await Profile.findById(id);
+    const profile = await findProfileByIdOrKey(id);
     if (!profile) {
       return reply.status(404).send({ error: 'Profile not found' });
     }
@@ -189,7 +189,7 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
   // Continue watching: finds the current / most recently watched video for this profile
   app.get<{ Params: { id: string } }>('/api/profiles/:id/continue', async (req, reply) => {
     const { id } = req.params;
-    const profile = await Profile.findById(id);
+    const profile = await findProfileByIdOrKey(id);
     if (!profile) {
       return reply.status(404).send({ error: 'Profile not found' });
     }
@@ -264,7 +264,7 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
     const { id } = req.params;
     const { action, sectionId, videoId } = req.body || {};
 
-    const profile = await Profile.findById(id);
+    const profile = await findProfileByIdOrKey(id);
     if (!profile) {
       return reply.status(404).send({ error: 'Profile not found' });
     }

@@ -637,6 +637,14 @@ export const CustomVideoPlayer: React.FC = () => {
     activeProfile?.gdriveUrl ||
     (activeProfile?.key === 'development' ? GDRIVE_DEFAULTS.development : GDRIVE_DEFAULTS.dsa);
 
+  const lessonSearchUrl = video?.title
+    ? `https://drive.google.com/drive/search?q=${encodeURIComponent(`"${video.badge ? `${video.badge} - ` : ''}${video.title}"`)}`
+    : driveFolderUrl;
+
+  const sectionSearchUrl = section?.name
+    ? `https://drive.google.com/drive/search?q=${encodeURIComponent(`"${section.badge ? `${section.badge}. ` : ''}${section.name}"`)}`
+    : driveFolderUrl;
+
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
@@ -753,14 +761,28 @@ export const CustomVideoPlayer: React.FC = () => {
 
             <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-2">
               <a
-                href={driveFolderUrl}
+                href={lessonSearchUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:flex-1 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg"
+                title={`Search "${video?.title}" in Google Drive`}
+                className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Open in Google Drive</span>
+                <span>Open Lesson in Drive</span>
               </a>
+
+              {section && (
+                <a
+                  href={sectionSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Open Section Folder "${section.name}" in Google Drive`}
+                  className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main text-xs font-medium border border-border flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <FolderOpen className="w-4 h-4 text-accent" />
+                  <span>Section Folder</span>
+                </a>
+              )}
 
               <button
                 type="button"
@@ -775,6 +797,18 @@ export const CustomVideoPlayer: React.FC = () => {
                 <Check className={`w-4 h-4 ${isLessonCompleted ? 'text-accent' : 'text-text-muted'}`} />
                 <span>{isLessonCompleted ? 'Completed' : 'Mark Done'}</span>
               </button>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 text-[11px] text-text-dim">
+              <span>Or browse the</span>
+              <a
+                href={driveFolderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline flex items-center gap-1 font-medium"
+              >
+                full course root folder <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
 
             <div className="flex items-center justify-between border-t border-border/80 pt-3 text-xs text-text-dim">

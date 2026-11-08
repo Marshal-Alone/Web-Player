@@ -10,6 +10,7 @@ export interface SeedResult {
 
 export const DEFAULT_PROFILES = [
   {
+    _id: '6aef1ffa40ee2964803d0e32',
     key: 'dsa' as const,
     name: 'DSA',
     order: 0,
@@ -18,6 +19,7 @@ export const DEFAULT_PROFILES = [
     resolvedLocalPath: 'G:\\My Drive\\Apna College DSA'
   },
   {
+    _id: '6aef1ffa40ee2964803d0e46',
     key: 'development' as const,
     name: 'Development',
     order: 1,
@@ -37,6 +39,7 @@ export async function seedDefaultProfiles(): Promise<SeedResult> {
 
     if (!profile) {
       profile = await Profile.create({
+        _id: def._id,
         key: def.key,
         name: def.name,
         rootPath: def.rootPath,
@@ -52,12 +55,12 @@ export async function seedDefaultProfiles(): Promise<SeedResult> {
       createdAny = true;
       console.log(`[Seeder] Seeded default profile: ${def.name} (${def.key}) -> ${def.rootPath}`);
     } else {
-      // Ensure Google Drive link is set as default path
-      if (!profile.rootPath || !profile.rootPath.startsWith('http')) {
-        profile.rootPath = def.rootPath;
+      // Ensure Google Drive link or local path is preserved
+      if (!profile.rootPath) {
+        profile.rootPath = def.resolvedLocalPath || def.rootPath;
         modified = true;
       }
-      if (!profile.gdriveUrl || !profile.gdriveUrl.startsWith('http')) {
+      if (!profile.gdriveUrl) {
         profile.gdriveUrl = def.gdriveUrl;
         modified = true;
       }

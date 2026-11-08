@@ -119,15 +119,21 @@ export const SettingsPage: React.FC = () => {
       });
   }, [selectedBulkProfileId]);
 
-  const handleValidate = async (profileId: string) => {
+  const handleValidate = async (profileId: string, overridePath?: string) => {
     setValidating((prev) => ({ ...prev, [profileId]: true }));
     setValResults((prev) => ({ ...prev, [profileId]: null }));
 
     try {
-      const prof = profiles.find((p) => p._id === profileId);
-      const defaultPath = prof?.key ? GDRIVE_DEFAULTS[prof.key] : '';
-      const enteredPath = paths[profileId] || defaultPath;
-      await updateProfile(profileId, { rootPath: enteredPath });
+      const prof = profiles.find((p) => p._id === profileId || p.key === profileId) || profiles[0];
+      const detectedMatch = detectedFolders.find((f) =>
+        prof?.key === 'dsa' ? f.name.toLowerCase().includes('dsa') : f.name.toLowerCase().includes('dev')
+      );
+      const defaultLocal = prof?.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+      const enteredPath = (overridePath || paths[profileId] || detectedMatch?.fullPath || defaultLocal || (prof?.key ? GDRIVE_DEFAULTS[prof.key] : '')).trim();
+
+      setPaths((prev) => ({ ...prev, [profileId]: enteredPath }));
+
+      await updateProfile(profileId, { rootPath: enteredPath, key: prof?.key, name: prof?.name });
       const res = await validateProfilePath(profileId, enteredPath);
       setValResults((prev) => ({ ...prev, [profileId]: res }));
 
@@ -143,15 +149,21 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleScan = async (profileId: string) => {
+  const handleScan = async (profileId: string, overridePath?: string) => {
     setScanning((prev) => ({ ...prev, [profileId]: true }));
     setScanStatus((prev) => ({ ...prev, [profileId]: 'Scanning library non-invasively...' }));
 
     try {
-      const prof = profiles.find((p) => p._id === profileId);
-      const defaultPath = prof?.key ? GDRIVE_DEFAULTS[prof.key] : '';
-      const enteredPath = paths[profileId] || defaultPath;
-      await updateProfile(profileId, { rootPath: enteredPath });
+      const prof = profiles.find((p) => p._id === profileId || p.key === profileId) || profiles[0];
+      const detectedMatch = detectedFolders.find((f) =>
+        prof?.key === 'dsa' ? f.name.toLowerCase().includes('dsa') : f.name.toLowerCase().includes('dev')
+      );
+      const defaultLocal = prof?.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+      const enteredPath = (overridePath || paths[profileId] || detectedMatch?.fullPath || defaultLocal || (prof?.key ? GDRIVE_DEFAULTS[prof.key] : '')).trim();
+
+      setPaths((prev) => ({ ...prev, [profileId]: enteredPath }));
+
+      await updateProfile(profileId, { rootPath: enteredPath, key: prof?.key, name: prof?.name });
       const res = await scanProfile(profileId);
       setScanStatus((prev) => ({
         ...prev,
@@ -355,6 +367,7 @@ export const SettingsPage: React.FC = () => {
                           type="button"
                           onClick={() => {
                             setPaths({ ...paths, [profile._id]: f.fullPath });
+                            handleValidate(profile._id, f.fullPath);
                           }}
                           className="px-2 py-0.5 rounded-md bg-surface border border-border hover:border-accent text-[11px] font-mono text-text-muted hover:text-text-main transition-colors"
                         >

@@ -1,14 +1,19 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import fs from 'fs';
 import path from 'path';
+import mongoose from 'mongoose';
 import { Video, Section, Profile, Progress, WatchLog } from '../models/index.js';
 import { getEffectiveLocalPath } from '../services/gdrive.service.js';
+import { findProfileByIdOrKey } from '../services/scanner.service.js';
 
 export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // Get video details with previous & next navigation
   app.get<{ Params: { id: string } }>('/api/videos/:id', async (req, reply) => {
     const { id } = req.params;
-    const video = await Video.findById(id);
+    let video = mongoose.Types.ObjectId.isValid(id) ? await Video.findById(id) : null;
+    if (!video) {
+      video = await Video.findOne({ badge: id });
+    }
     if (!video) {
       return reply.status(404).send({ error: 'Video not found' });
     }
@@ -65,12 +70,15 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // Range-based video streaming endpoint
   app.get<{ Params: { id: string } }>('/api/videos/:id/stream', async (req, reply) => {
     const { id } = req.params;
-    const video = await Video.findById(id);
+    let video = mongoose.Types.ObjectId.isValid(id) ? await Video.findById(id) : null;
+    if (!video) {
+      video = await Video.findOne({ badge: id });
+    }
     if (!video) {
       return reply.status(404).send({ error: 'Video not found' });
     }
 
-    const profile = await Profile.findById(video.profileId);
+    const profile = await findProfileByIdOrKey(video.profileId.toString());
     if (!profile) {
       return reply.status(400).send({ error: 'Profile not found' });
     }
@@ -80,9 +88,20 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       return reply.status(400).send({ error: 'Profile root path not configured' });
     }
 
-    // Security check: verify path is inside rootPath
-    const resolvedPath = path.resolve(video.fullPath);
+    // Dynamic resolution if disk path moved, drive letter changed, or cloned to another laptop
+    let resolvedPath = path.resolve(video.fullPath);
     const resolvedRoot = path.resolve(effectiveRoot);
+
+    if (!fs.existsSync(resolvedPath) && video.relPath) {
+      const candidate = path.resolve(path.join(resolvedRoot, video.relPath));
+      if (fs.existsSync(candidate)) {
+        resolvedPath = candidate;
+        video.fullPath = candidate;
+        video.save().catch(() => {});
+      }
+    }
+
+    // Security check: verify path is inside rootPath
     if (!resolvedPath.startsWith(resolvedRoot)) {
       return reply.status(403).send({ error: 'Access denied: file outside profile root' });
     }

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import mongoose from 'mongoose';
 import { Profile, Section, Video, IProfile, ISection, IVideo } from '../models/index.js';
 import { resolveGDriveUrlToLocalPath, extractGDriveFolderId } from './gdrive.service.js';
 
@@ -54,15 +55,65 @@ export interface ValidationResult {
 }
 
 /**
+ * Resilient profile finder:
+ * Matches by MongoDB _id, key ('dsa' or 'development'), name, or known curriculum ID.
+ * Falls back to case-insensitive substring and guarantees finding the profile.
+ */
+export async function findProfileByIdOrKey(id: string): Promise<IProfile | null> {
+  if (!id) return null;
+  const cleanId = String(id).trim();
+
+  // 1. Valid MongoDB ObjectId lookup
+  if (mongoose.Types.ObjectId.isValid(cleanId)) {
+    const profile = await Profile.findById(cleanId);
+    if (profile) return profile;
+  }
+
+  // 2. Exact key lookup ('dsa' or 'development')
+  const byKey = await Profile.findOne({ key: cleanId.toLowerCase() });
+  if (byKey) return byKey;
+
+  // 3. Known static curriculum.json IDs
+  if (cleanId === '6aef1ffa40ee2964803d0e32') {
+    const dsa = await Profile.findOne({ key: 'dsa' });
+    if (dsa) return dsa;
+  }
+  if (cleanId === '6aef1ffa40ee2964803d0e46') {
+    const dev = await Profile.findOne({ key: 'development' });
+    if (dev) return dev;
+  }
+
+  // 4. Exact name lookup (case-insensitive)
+  const byName = await Profile.findOne({ name: new RegExp(`^${cleanId}$`, 'i') });
+  if (byName) return byName;
+
+  // 5. Substring key matching
+  if (cleanId.toLowerCase().includes('dsa')) {
+    const dsa = await Profile.findOne({ key: 'dsa' });
+    if (dsa) return dsa;
+  }
+  if (cleanId.toLowerCase().includes('dev')) {
+    const dev = await Profile.findOne({ key: 'development' });
+    if (dev) return dev;
+  }
+
+  // 6. Final fallback: return the first available profile
+  return await Profile.findOne().sort({ order: 1 });
+}
+
+/**
  * Non-invasive validation: checks directory existence and counts sections & videos.
  * Supports both local paths (e.g. G:\My Drive\Apna College...) AND direct Google Drive folder links!
  */
-export async function validateProfilePath(rootPath: string): Promise<ValidationResult> {
-  if (!rootPath || !rootPath.trim()) {
+export async function validateProfilePath(rootPath: string, profileKey?: string): Promise<ValidationResult> {
+  let effectivePath = (rootPath || '').trim();
+  if (!effectivePath && profileKey) {
+    effectivePath = profileKey === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+  }
+  if (!effectivePath) {
     return { valid: false, pathExists: false, sectionCount: 0, videoCount: 0, error: 'Path is empty' };
   }
 
-  let effectivePath = rootPath.trim();
   let isDriveUrl = false;
   let folderName: string | undefined;
 
@@ -151,12 +202,20 @@ export async function validateProfilePath(rootPath: string): Promise<ValidationR
  * - Marks missing files with missing: true
  */
 export async function scanProfileLibrary(profileId: string): Promise<{ sectionsAdded: number; videosAdded: number }> {
-  const profile = await Profile.findById(profileId);
-  if (!profile || !profile.rootPath) {
-    throw new Error('Profile not found or rootPath not set');
+  const profile = await findProfileByIdOrKey(profileId);
+  if (!profile) {
+    throw new Error('Profile not found');
   }
 
-  let rootPath = profile.rootPath.trim();
+  let rootPath = (profile.resolvedLocalPath || profile.rootPath || '').trim();
+
+  // If path is not set or empty, assign standard default based on profile key
+  if (!rootPath) {
+    rootPath = profile.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+    profile.rootPath = rootPath;
+    profile.resolvedLocalPath = rootPath;
+    await profile.save();
+  }
 
   // If user provided a direct Google Drive URL, resolve to local Google Drive for Desktop path
   if (extractGDriveFolderId(rootPath) || rootPath.includes('drive.google.com')) {
@@ -167,12 +226,37 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
       await profile.save();
       rootPath = gdriveResult.localPath;
     } else {
-      throw new Error(
-        gdriveResult.error ||
-          'Could not resolve Google Drive link to local drive. Please ensure Google Drive for Desktop is running.'
-      );
+      // Fallback: check standard local paths
+      const fallbackPath =
+        profile.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+      if (fs.existsSync(fallbackPath)) {
+        profile.resolvedLocalPath = fallbackPath;
+        await profile.save();
+        rootPath = fallbackPath;
+      } else {
+        throw new Error(
+          gdriveResult.error ||
+            'Could not resolve Google Drive link to local drive. Please ensure Google Drive for Desktop is running and folder path exists.'
+        );
+      }
     }
   }
+
+  // If path doesn't exist on G:\, check candidate drives (H:\, F:\, D:\, C:\)
+  if (!fs.existsSync(rootPath)) {
+    const folderBaseName = path.basename(rootPath);
+    const candidateDrives = ['G:\\My Drive', 'G:\\', 'H:\\My Drive', 'H:\\', 'F:\\My Drive', 'D:\\My Drive'];
+    for (const cand of candidateDrives) {
+      const alt = path.join(cand, folderBaseName);
+      if (fs.existsSync(alt)) {
+        rootPath = alt;
+        profile.resolvedLocalPath = alt;
+        await profile.save();
+        break;
+      }
+    }
+  }
+
   const stat = await fs.promises.stat(rootPath);
   if (!stat.isDirectory()) {
     throw new Error(`Profile rootPath "${rootPath}" is not a directory`);
