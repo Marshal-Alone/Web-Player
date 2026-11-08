@@ -134,48 +134,60 @@ export const HomePage: React.FC = () => {
       </div>
 
       {/* Continue Watching Hero Card */}
-      {continueData && (
-        <div className="relative rounded-2xl border border-accent/40 bg-gradient-to-r from-accent/15 via-card to-card p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden">
-          <div className="flex items-center gap-5">
-            <div
-              onClick={() => handleStartLesson(continueData.video._id)}
-              className="w-16 h-16 rounded-2xl bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-105 transition-transform shrink-0"
-            >
-              <Play className="w-8 h-8 ml-1" />
-            </div>
+      {(() => {
+        if (!continueData) return null;
+        const contVideo = continueData.video || continueData;
+        const contSection = continueData.section || (continueData.sectionName ? { name: continueData.sectionName } : null);
+        if (!contVideo || !contVideo._id) return null;
 
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[11px] uppercase font-bold tracking-wider text-accent-text">
-                  Continue Watching
-                </span>
-                {continueData.section && (
-                  <span className="text-xs text-text-dim font-medium">
-                    • {continueData.section.name}
+        const contBadge = contVideo.badge;
+        const contTitle = contVideo.title || 'Resume Lesson';
+        const contTime = Math.floor((continueData.currentTime || contVideo.progress?.currentTime || 0) / 60);
+        const contPercent = continueData.percent || 0;
+
+        return (
+          <div className="relative rounded-2xl border border-accent/40 bg-gradient-to-r from-accent/15 via-card to-card p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden">
+            <div className="flex items-center gap-5">
+              <div
+                onClick={() => handleStartLesson(contVideo._id)}
+                className="w-16 h-16 rounded-2xl bg-accent text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-105 transition-transform shrink-0"
+              >
+                <Play className="w-8 h-8 ml-1" />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] uppercase font-bold tracking-wider text-accent-text">
+                    Continue Watching
                   </span>
-                )}
-              </div>
-              <h2 className="text-lg font-bold text-text-main mb-2">
-                {continueData.video.badge ? `${continueData.video.badge} - ` : ''}
-                {continueData.video.title}
-              </h2>
-              <div className="flex items-center gap-4 text-xs text-text-muted">
-                <span>{continueData.percent}% watched</span>
-                <span>•</span>
-                <span>Resume from {Math.floor(continueData.currentTime / 60)}m</span>
+                  {contSection && (
+                    <span className="text-xs text-text-dim font-medium">
+                      • {contSection.name}
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-lg font-bold text-text-main mb-2">
+                  {contBadge ? `${contBadge} - ` : ''}
+                  {contTitle}
+                </h2>
+                <div className="flex items-center gap-4 text-xs text-text-muted">
+                  <span>{contPercent}% watched</span>
+                  <span>•</span>
+                  <span>Resume from {contTime}m</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <button
-            onClick={() => handleStartLesson(continueData.video._id)}
-            className="px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-sm shadow-md transition-colors flex items-center gap-2 self-stretch md:self-center justify-center shrink-0"
-          >
-            <span>Resume Lesson</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <button
+              onClick={() => handleStartLesson(contVideo._id)}
+              className="px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-sm shadow-md transition-colors flex items-center gap-2 self-stretch md:self-center justify-center shrink-0"
+            >
+              <span>Resume Lesson</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Search Input */}
       <div className="relative">

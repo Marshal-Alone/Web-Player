@@ -3,7 +3,14 @@ import curriculumData from '../data/curriculum.json';
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
-// Helper to determine if we are running in an environment without the local backend
+export const isStandaloneMode =
+  typeof window !== 'undefined' &&
+  (window.location.hostname.includes('netlify.app') ||
+    window.location.hostname.includes('github.io') ||
+    (window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1' &&
+      !(import.meta as any).env?.VITE_API_URL));
+
 async function safeFetchJson(url: string, options?: RequestInit) {
   try {
     const res = await fetch(url, options);
@@ -21,6 +28,9 @@ async function safeFetchJson(url: string, options?: RequestInit) {
 }
 
 export async function fetchProfiles() {
+  if (isStandaloneMode) {
+    return localStore.getLocalProfiles();
+  }
   try {
     const data = await safeFetchJson(`${API_BASE}/profiles`);
     if (Array.isArray(data) && data.length > 0) return data;
@@ -29,6 +39,14 @@ export async function fetchProfiles() {
 }
 
 export async function fetchDetectedDriveFolders() {
+  if (isStandaloneMode) {
+    return {
+      detected: [
+        { name: 'Apna College DSA', fullPath: 'G:\\My Drive\\Apna College DSA' },
+        { name: 'Apna College Development', fullPath: 'G:\\My Drive\\Apna College Development' }
+      ]
+    };
+  }
   try {
     return await safeFetchJson(`${API_BASE}/gdrive/detect`);
   } catch {
@@ -42,11 +60,10 @@ export async function fetchDetectedDriveFolders() {
 }
 
 export async function updateProfile(id: string, data: { name?: string; rootPath?: string }) {
-  // Always update local store
-  try {
-    localStore.updateLocalProfile(id, data);
-  } catch {}
-
+  const localRes = localStore.updateLocalProfile(id, data);
+  if (isStandaloneMode) {
+    return localRes;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${id}`, {
       method: 'PUT',
@@ -54,12 +71,14 @@ export async function updateProfile(id: string, data: { name?: string; rootPath?
       body: JSON.stringify(data)
     });
   } catch {
-    const profiles = localStore.getLocalProfiles();
-    return profiles.find((p) => p._id === id || p.key === id) || profiles[0];
+    return localRes;
   }
 }
 
 export async function validateProfilePath(id: string, rootPath?: string) {
+  if (isStandaloneMode) {
+    return validateProfilePathLocally(id, rootPath);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${id}/validate`, {
       method: 'POST',
@@ -67,44 +86,55 @@ export async function validateProfilePath(id: string, rootPath?: string) {
       body: JSON.stringify({ rootPath })
     });
   } catch {
-    // Standalone fallback: validate path or Google Drive link against curriculum
-    const profiles = localStore.getLocalProfiles();
-    const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
-    const pathToCheck = rootPath || prof?.rootPath || '';
-    const isDriveUrl = pathToCheck.includes('drive.google.com');
-
-    const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id);
-    const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id);
-
-    return {
-      valid: Boolean(pathToCheck && pathToCheck.trim()),
-      pathExists: true,
-      sectionCount: sections.length,
-      videoCount: videos.length,
-      isDriveUrl,
-      folderName: prof?.name || 'Course Folder',
-      resolvedPath: pathToCheck
-    };
+    return validateProfilePathLocally(id, rootPath);
   }
 }
 
+function validateProfilePathLocally(id: string, rootPath?: string) {
+  const profiles = localStore.getLocalProfiles();
+  const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
+  const pathToCheck = rootPath || prof?.rootPath || '';
+  const isDriveUrl = pathToCheck.includes('drive.google.com');
+
+  const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id);
+  const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id);
+
+  return {
+    valid: Boolean(pathToCheck && pathToCheck.trim()),
+    pathExists: true,
+    sectionCount: sections.length,
+    videoCount: videos.length,
+    isDriveUrl,
+    folderName: prof?.name || 'Course Folder',
+    resolvedPath: pathToCheck
+  };
+}
+
 export async function scanProfile(id: string) {
+  const profiles = localStore.getLocalProfiles();
+  const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
+  const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id);
+  const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id);
+  const localScanRes = {
+    success: true,
+    sectionsAdded: sections.length,
+    videosAdded: videos.length
+  };
+
+  if (isStandaloneMode) {
+    return localScanRes;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${id}/scan`, { method: 'POST' });
   } catch {
-    const profiles = localStore.getLocalProfiles();
-    const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
-    const sections = curriculumData.sections.filter((s: any) => s.profileId === prof?._id);
-    const videos = curriculumData.videos.filter((v: any) => v.profileId === prof?._id);
-    return {
-      success: true,
-      sectionsAdded: sections.length,
-      videosAdded: videos.length
-    };
+    return localScanRes;
   }
 }
 
 export async function fetchLibrary(id: string) {
+  if (isStandaloneMode) {
+    return localStore.getLocalLibrary(id);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${id}/library`);
   } catch {
@@ -112,30 +142,44 @@ export async function fetchLibrary(id: string) {
   }
 }
 
+function getLocalContinue(id: string) {
+  const lib = localStore.getLocalLibrary(id);
+  let continueVideo: any = null;
+  for (const sec of lib.sections) {
+    for (const v of sec.videos) {
+      if (!v.completed) {
+        const dur = v.duration || 0;
+        continueVideo = {
+          video: v,
+          section: { _id: sec._id, name: sec.name, badge: sec.badge },
+          currentTime: v.progress?.currentTime || 0,
+          duration: dur,
+          percent: dur > 0 ? Math.round(((v.progress?.currentTime || 0) / dur) * 100) : 0,
+          completed: false
+        };
+        break;
+      }
+    }
+    if (continueVideo) break;
+  }
+  return { continueVideo };
+}
+
 export async function fetchContinue(id: string) {
+  if (isStandaloneMode) {
+    return getLocalContinue(id);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${id}/continue`);
   } catch {
-    const lib = localStore.getLocalLibrary(id);
-    // Find first uncompleted or last watched video
-    let continueVideo: any = null;
-    for (const sec of lib.sections) {
-      for (const v of sec.videos) {
-        if (!v.completed) {
-          continueVideo = {
-            ...v,
-            sectionName: sec.name
-          };
-          break;
-        }
-      }
-      if (continueVideo) break;
-    }
-    return { continueVideo };
+    return getLocalContinue(id);
   }
 }
 
 export async function fetchVideoDetails(id: string) {
+  if (isStandaloneMode) {
+    return localStore.getLocalVideoDetails(id);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${id}`);
   } catch {
@@ -147,9 +191,10 @@ export async function saveProgress(
   id: string,
   data: { currentTime: number; duration: number; completed?: boolean }
 ) {
-  // Always update browser local storage immediately
-  localStore.saveLocalVideoProgress(id, data);
-
+  const localRes = localStore.saveLocalVideoProgress(id, data);
+  if (isStandaloneMode) {
+    return localRes;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${id}/progress`, {
       method: 'PUT',
@@ -157,7 +202,7 @@ export async function saveProgress(
       body: JSON.stringify(data)
     });
   } catch {
-    return localStore.getLocalVideoProgress(id);
+    return localRes;
   }
 }
 
@@ -166,13 +211,16 @@ export function beaconProgress(
   data: { currentTime: number; duration: number; completed?: boolean }
 ) {
   localStore.saveLocalVideoProgress(id, data);
-  if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+  if (!isStandaloneMode && typeof navigator !== 'undefined' && navigator.sendBeacon) {
     const blob = new Blob([JSON.stringify(data)], { type: 'text/plain' });
     navigator.sendBeacon(`${API_BASE}/videos/${id}/progress/beacon`, blob);
   }
 }
 
 export async function updateVideoDuration(id: string, duration: number) {
+  if (isStandaloneMode) {
+    return { success: true };
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${id}/duration`, {
       method: 'POST',
@@ -185,9 +233,10 @@ export async function updateVideoDuration(id: string, duration: number) {
 }
 
 export async function toggleComplete(id: string) {
-  // Always toggle local store immediately
   const localRes = localStore.toggleLocalVideoComplete(id);
-
+  if (isStandaloneMode) {
+    return localRes;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${id}/toggle-complete`, { method: 'PUT' });
   } catch {
@@ -196,6 +245,9 @@ export async function toggleComplete(id: string) {
 }
 
 export async function fetchNotes(videoId: string) {
+  if (isStandaloneMode) {
+    return localStore.getLocalNotes(videoId);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${videoId}/notes`);
   } catch {
@@ -205,6 +257,9 @@ export async function fetchNotes(videoId: string) {
 
 export async function addNote(videoId: string, data: { timestamp: number; content: string }) {
   const localNote = localStore.addLocalNote(videoId, data);
+  if (isStandaloneMode) {
+    return localNote;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${videoId}/notes`, {
       method: 'POST',
@@ -218,6 +273,9 @@ export async function addNote(videoId: string, data: { timestamp: number; conten
 
 export async function deleteNote(noteId: string) {
   localStore.deleteLocalNote(noteId);
+  if (isStandaloneMode) {
+    return { success: true };
+  }
   try {
     return await safeFetchJson(`${API_BASE}/notes/${noteId}`, { method: 'DELETE' });
   } catch {
@@ -226,6 +284,9 @@ export async function deleteNote(noteId: string) {
 }
 
 export async function fetchBookmarks(videoId: string) {
+  if (isStandaloneMode) {
+    return localStore.getLocalBookmarks(videoId);
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${videoId}/bookmarks`);
   } catch {
@@ -235,6 +296,9 @@ export async function fetchBookmarks(videoId: string) {
 
 export async function addBookmark(videoId: string, data: { timestamp: number; title?: string }) {
   const localBm = localStore.addLocalBookmark(videoId, data);
+  if (isStandaloneMode) {
+    return localBm;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/videos/${videoId}/bookmarks`, {
       method: 'POST',
@@ -248,6 +312,9 @@ export async function addBookmark(videoId: string, data: { timestamp: number; ti
 
 export async function deleteBookmark(bookmarkId: string) {
   localStore.deleteLocalBookmark(bookmarkId);
+  if (isStandaloneMode) {
+    return { success: true };
+  }
   try {
     return await safeFetchJson(`${API_BASE}/bookmarks/${bookmarkId}`, { method: 'DELETE' });
   } catch {
@@ -256,6 +323,9 @@ export async function deleteBookmark(bookmarkId: string) {
 }
 
 export async function fetchStats(profileId?: string) {
+  if (isStandaloneMode) {
+    return localStore.getLocalStats(profileId);
+  }
   try {
     const query = profileId ? `?profileId=${profileId}` : '';
     return await safeFetchJson(`${API_BASE}/stats${query}`);
@@ -265,6 +335,9 @@ export async function fetchStats(profileId?: string) {
 }
 
 export async function fetchSettings() {
+  if (isStandaloneMode) {
+    return localStore.getLocalSettings();
+  }
   try {
     return await safeFetchJson(`${API_BASE}/settings`);
   } catch {
@@ -274,6 +347,9 @@ export async function fetchSettings() {
 
 export async function updateSettings(settings: Record<string, any>) {
   localStore.updateLocalSettings(settings);
+  if (isStandaloneMode) {
+    return settings;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/settings`, {
       method: 'PUT',
@@ -286,6 +362,9 @@ export async function updateSettings(settings: Record<string, any>) {
 }
 
 export async function fetchResources(sectionId: string) {
+  if (isStandaloneMode) {
+    return { resources: [] };
+  }
   try {
     return await safeFetchJson(`${API_BASE}/sections/${sectionId}/resources`);
   } catch {
@@ -301,7 +380,10 @@ export async function bulkMarkProgress(
     videoId?: string;
   }
 ) {
-  localStore.bulkMarkLocalProgress(profileId, data);
+  const localRes = localStore.bulkMarkLocalProgress(profileId, data);
+  if (isStandaloneMode) {
+    return localRes;
+  }
   try {
     return await safeFetchJson(`${API_BASE}/profiles/${profileId}/bulk-progress`, {
       method: 'POST',
@@ -309,6 +391,6 @@ export async function bulkMarkProgress(
       body: JSON.stringify(data)
     });
   } catch {
-    return { success: true };
+    return localRes;
   }
 }
