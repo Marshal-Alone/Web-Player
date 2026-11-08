@@ -37,10 +37,10 @@ export const HomePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!profile?._id) return;
+    const targetId = profile?._id || activeProfileKey || 'dsa';
     setIsLoading(true);
 
-    Promise.all([fetchLibrary(profile._id), fetchContinue(profile._id)])
+    Promise.all([fetchLibrary(targetId), fetchContinue(targetId)])
       .then(([lib, cont]) => {
         setLibraryData(lib);
         setContinueData(cont.continueVideo);

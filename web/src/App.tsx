@@ -3,6 +3,7 @@ import { useProfileStore } from './stores/useProfileStore.js';
 import { useUIStore } from './stores/useUIStore.js';
 import { usePlayerStore } from './stores/usePlayerStore.js';
 import { fetchProfiles } from './api/client.js';
+import curriculumData from './data/curriculum.json';
 
 import { Navbar } from './components/navbar/Navbar.js';
 import { HomePage } from './components/home/HomePage.js';
@@ -15,13 +16,23 @@ import { NotesDrawer } from './components/player/NotesDrawer.js';
 import { BookmarksDrawer } from './components/player/BookmarksDrawer.js';
 
 export function App() {
-  const { setProfiles, activeProfileKey } = useProfileStore();
+  const { setProfiles, activeProfileKey, setActiveProfileKey } = useProfileStore();
   const { currentView, setCurrentView, theme } = useUIStore();
   const { isTheatreMode: playerTheatre, setCurrentVideoId } = usePlayerStore();
 
+  // Manage body scroll and lock viewport when playing video
   useEffect(() => {
-    // Set theme and profile attributes
-    document.documentElement.setAttribute('data-profile', activeProfileKey);
+    if (currentView === 'player') {
+      window.scrollTo(0, 0);
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [currentView]);
+
+  // Synchronize profiles, themes, and initial URL routing on mount
+  useEffect(() => {
+    // Set theme attribute
     if (theme === 'light') {
       document.documentElement.classList.remove('dark');
       document.documentElement.classList.add('light');
@@ -32,7 +43,28 @@ export function App() {
       document.documentElement.setAttribute('data-theme', 'dark');
     }
 
-    // Load initial profiles from backend
+    // Inspect initial URL query parameters
+    const params = new URLSearchParams(window.location.search);
+    const videoParam = params.get('v') || params.get('video') || localStorage.getItem('course_player_current_video');
+    const viewParam = params.get('view') as any;
+
+    if (videoParam) {
+      setCurrentVideoId(videoParam);
+      setCurrentView('player');
+
+      // Auto-align active profile key with the video's parent course
+      const matchedVid = (curriculumData.videos as any[]).find((v) => v._id === videoParam);
+      if (matchedVid) {
+        const matchedProf = (curriculumData.profiles as any[]).find((p) => p._id === matchedVid.profileId);
+        if (matchedProf && matchedProf.key && matchedProf.key !== activeProfileKey) {
+          setActiveProfileKey(matchedProf.key);
+        }
+      }
+    } else if (viewParam && ['library', 'settings', 'stats'].includes(viewParam)) {
+      setCurrentView(viewParam);
+    }
+
+    // Load initial profiles
     fetchProfiles()
       .then((data) => {
         setProfiles(data);
@@ -40,7 +72,12 @@ export function App() {
       .catch((err) => {
         console.error('Failed to load profiles:', err);
       });
-  }, [activeProfileKey, theme, setProfiles]);
+  }, []);
+
+  // Update profile data-profile attribute on root html
+  useEffect(() => {
+    document.documentElement.setAttribute('data-profile', activeProfileKey);
+  }, [activeProfileKey]);
 
   // Handle browser popstate navigation (Back / Forward buttons & URL sync)
   useEffect(() => {
@@ -52,6 +89,13 @@ export function App() {
       if (v) {
         setCurrentVideoId(v);
         setCurrentView('player');
+        const matchedVid = (curriculumData.videos as any[]).find((item) => item._id === v);
+        if (matchedVid) {
+          const matchedProf = (curriculumData.profiles as any[]).find((p) => p._id === matchedVid.profileId);
+          if (matchedProf && matchedProf.key) {
+            setActiveProfileKey(matchedProf.key);
+          }
+        }
       } else if (view && ['library', 'settings', 'stats'].includes(view)) {
         setCurrentView(view);
       } else {
@@ -61,12 +105,14 @@ export function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [setCurrentVideoId, setCurrentView]);
+  }, [setCurrentVideoId, setCurrentView, setActiveProfileKey]);
 
   return (
     <div
-      className={`w-full max-w-full overflow-x-hidden bg-canvas text-text-main flex flex-col font-sans ${
-        currentView === 'player' ? 'h-screen max-h-screen overflow-hidden' : 'min-h-screen'
+      className={`w-full max-w-full bg-canvas text-text-main flex flex-col font-sans ${
+        currentView === 'player'
+          ? 'fixed inset-0 overflow-hidden w-screen h-screen z-0'
+          : 'min-h-screen overflow-x-hidden'
       }`}
     >
       <Navbar />

@@ -21,7 +21,7 @@ function formatDuration(sec: number | null): string {
 }
 
 export const PlayerSidebar: React.FC = () => {
-  const { getActiveProfile } = useProfileStore();
+  const { getActiveProfile, activeProfileKey } = useProfileStore();
   const {
     currentVideoId,
     setCurrentVideoId,
@@ -37,16 +37,15 @@ export const PlayerSidebar: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const loadData = () => {
-    if (profile?._id) {
-      fetchLibrary(profile._id).then((data) => {
-        setLibraryData(data);
-      });
-    }
+    const targetId = profile?._id || activeProfileKey || 'dsa';
+    fetchLibrary(targetId).then((data) => {
+      setLibraryData(data);
+    });
   };
 
   useEffect(() => {
     loadData();
-  }, [profile?._id, currentVideoId]);
+  }, [profile?._id, activeProfileKey, currentVideoId]);
 
   // Auto-expand and scroll active section into view without scrolling the browser window
   useEffect(() => {

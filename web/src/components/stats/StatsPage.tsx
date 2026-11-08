@@ -28,7 +28,7 @@ function getActivityLevel(minutes: number): number {
 }
 
 export const StatsPage: React.FC = () => {
-  const { getActiveProfile } = useProfileStore();
+  const { getActiveProfile, activeProfileKey } = useProfileStore();
   const profile = getActiveProfile();
 
   const [stats, setStats] = useState<any>(null);
@@ -39,10 +39,11 @@ export const StatsPage: React.FC = () => {
 
   useEffect(() => {
     setIsLoading(true);
-    fetchStats(profile?._id)
+    const targetId = profile?._id || activeProfileKey || 'dsa';
+    fetchStats(targetId)
       .then((data) => setStats(data))
       .finally(() => setIsLoading(false));
-  }, [profile?._id]);
+  }, [profile?._id, activeProfileKey]);
 
   // Group heatmap into week columns of 7 days (Sunday to Saturday)
   const { columns, monthHeaders } = useMemo(() => {

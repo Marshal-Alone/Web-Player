@@ -192,6 +192,34 @@ Apna College Player/
 
 ---
 
+## 🌐 Netlify Cloud Deployment & Standalone Mode
+
+The player is fully configured for standalone cloud deployment on **Netlify**:
+
+- **Live Netlify URL**: [https://apna-course-player.netlify.app](https://apna-course-player.netlify.app)
+- **Netlify Project**: `apna-course-player`
+
+### How Cloud / Offline Standalone Mode Works
+
+1. **Bundled Curriculum (1,308 Lessons & 123 Sections)**:
+   The complete course hierarchy for both **DSA** and **Development** is bundled into `web/src/data/curriculum.json` (~187 KB gzipped). The app loads instantly on Netlify with zero database or backend required.
+2. **Local Storage Persistence**:
+   In deployed mode, all user state is saved directly in browser `localStorage`:
+   - Exact video resume timestamps (`course_player_pos_<videoId>`)
+   - Completed lessons and progress percentage
+   - Video notes with timestamps
+   - Bookmarks
+   - Study activity logs, watch time (today/week/all-time), daily streaks, and the 52-week activity heatmap
+   - Playback settings (speed, volume, autoplay)
+3. **Google Drive Integration**:
+   - **DSA Folder**: [Open DSA Google Drive](https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link)
+   - **Development Folder**: [Open Development Google Drive](https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing)
+   When deployed on Netlify, the player displays an interactive cloud card with one-click direct access to the course files on Google Drive while keeping lesson tracking, notes, and course progress fully interactive in your browser.
+4. **Deploying Updates to Netlify**:
+   Simply push your repository commits to GitHub (Netlify automatically builds and deploys via continuous deployment), or drag and drop the `web/dist` folder into your [Netlify Deploys Dashboard](https://app.netlify.com/projects/apna-course-player/deploys).
+
+---
+
 ## 🔧 Troubleshooting
 
 - **Google Drive video buffering slowly**:

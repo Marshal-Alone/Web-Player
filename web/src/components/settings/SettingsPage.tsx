@@ -27,6 +27,11 @@ import {
   HardDrive
 } from 'lucide-react';
 
+const GDRIVE_DEFAULTS: Record<string, string> = {
+  dsa: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
+  development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+};
+
 export const SettingsPage: React.FC = () => {
   const { profiles, setProfiles, activeProfileKey } = useProfileStore();
   const { setAutoplayEnabled } = usePlayerStore();
@@ -58,7 +63,7 @@ export const SettingsPage: React.FC = () => {
       setProfiles(data);
       const initialPaths: { [id: string]: string } = {};
       data.forEach((p: any) => {
-        initialPaths[p._id] = p.gdriveUrl || p.rootPath || '';
+        initialPaths[p._id] = p.gdriveUrl || p.rootPath || GDRIVE_DEFAULTS[p.key] || '';
       });
       setPaths(initialPaths);
 
@@ -119,7 +124,9 @@ export const SettingsPage: React.FC = () => {
     setValResults((prev) => ({ ...prev, [profileId]: null }));
 
     try {
-      const enteredPath = paths[profileId] ?? '';
+      const prof = profiles.find((p) => p._id === profileId);
+      const defaultPath = prof?.key ? GDRIVE_DEFAULTS[prof.key] : '';
+      const enteredPath = paths[profileId] || defaultPath;
       await updateProfile(profileId, { rootPath: enteredPath });
       const res = await validateProfilePath(profileId, enteredPath);
       setValResults((prev) => ({ ...prev, [profileId]: res }));
@@ -141,7 +148,9 @@ export const SettingsPage: React.FC = () => {
     setScanStatus((prev) => ({ ...prev, [profileId]: 'Scanning library non-invasively...' }));
 
     try {
-      const enteredPath = paths[profileId] ?? '';
+      const prof = profiles.find((p) => p._id === profileId);
+      const defaultPath = prof?.key ? GDRIVE_DEFAULTS[prof.key] : '';
+      const enteredPath = paths[profileId] || defaultPath;
       await updateProfile(profileId, { rootPath: enteredPath });
       const res = await scanProfile(profileId);
       setScanStatus((prev) => ({
@@ -295,7 +304,7 @@ export const SettingsPage: React.FC = () => {
                     )}
                     <input
                       type="text"
-                      value={paths[profile._id] ?? ''}
+                      value={paths[profile._id] ?? GDRIVE_DEFAULTS[profile.key] ?? ''}
                       onChange={(e) =>
                         setPaths({ ...paths, [profile._id]: e.target.value })
                       }

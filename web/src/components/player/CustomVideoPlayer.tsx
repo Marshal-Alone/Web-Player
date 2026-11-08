@@ -1,11 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { usePlayerStore } from '../../stores/usePlayerStore.js';
+import { useProfileStore } from '../../stores/useProfileStore.js';
 import { useUIStore } from '../../stores/useUIStore.js';
 import {
   saveProgress,
   beaconProgress,
   updateVideoDuration,
-  fetchVideoDetails
+  fetchVideoDetails,
+  toggleComplete
 } from '../../api/client.js';
 import {
   Play,
@@ -25,7 +27,9 @@ import {
   FileText,
   Bookmark,
   Sparkles,
-  CloudDownload
+  CloudDownload,
+  FolderOpen,
+  ExternalLink
 } from 'lucide-react';
 
 function formatTime(seconds: number): string {
@@ -76,6 +80,7 @@ export const CustomVideoPlayer: React.FC = () => {
     setIsDriveLoading
   } = usePlayerStore();
 
+  const { getActiveProfile } = useProfileStore();
   const { setCurrentView, setNotesDrawerOpen, setBookmarksDrawerOpen } = useUIStore();
 
   // Local Player UI state
@@ -88,6 +93,8 @@ export const CustomVideoPlayer: React.FC = () => {
   const [hudMessage, setHudMessage] = useState<string | null>(null);
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
+  const [hasPlaybackError, setHasPlaybackError] = useState(false);
+  const [isLessonCompleted, setIsLessonCompleted] = useState(false);
 
   const controlsTimeoutRef = useRef<any>(null);
   const hudTimeoutRef = useRef<any>(null);
@@ -135,6 +142,11 @@ export const CustomVideoPlayer: React.FC = () => {
       if (val) {
         const parsed = parseFloat(val);
         if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      const rawProg = localStorage.getItem(`course_player_progress_${videoId}`);
+      if (rawProg) {
+        const parsedProg = JSON.parse(rawProg);
+        if (parsedProg?.currentTime && parsedProg.currentTime > 0) return parsedProg.currentTime;
       }
     } catch {}
     return 0;
@@ -202,17 +214,28 @@ export const CustomVideoPlayer: React.FC = () => {
 
         hasResumedRef.current = true;
 
-        if (candidateTime > 2 && isFinite(candidateTime)) {
+        if (candidateTime > 1 && isFinite(candidateTime)) {
+          const onSeeked = () => {
+            videoEl.removeEventListener('seeked', onSeeked);
+            videoEl.play().catch(() => {});
+          };
+          videoEl.addEventListener('seeked', onSeeked, { once: true });
           videoEl.currentTime = candidateTime;
           setCurrentTime(candidateTime);
           showHud(`Resumed at ${formatTime(candidateTime)}`);
-        }
 
-        videoEl
-          .play()
-          .then(() => setIsPlaying(true))
-          .catch(() => setIsPlaying(false));
-      } else if (hasResumedRef.current && candidateTime > 2 && videoEl.currentTime < 2) {
+          // Fallback if seeked event is delayed
+          setTimeout(() => {
+            videoEl.removeEventListener('seeked', onSeeked);
+            videoEl.play().catch(() => {});
+          }, 350);
+        } else {
+          videoEl
+            .play()
+            .then(() => setIsPlaying(true))
+            .catch(() => setIsPlaying(false));
+        }
+      } else if (hasResumedRef.current && candidateTime > 1 && videoEl.currentTime < 1) {
         // Late arrival case: API returned with a valid saved position, but video was sitting at 0
         videoEl.currentTime = candidateTime;
         setCurrentTime(candidateTime);
@@ -226,6 +249,7 @@ export const CustomVideoPlayer: React.FC = () => {
   useEffect(() => {
     if (!currentVideoId) return;
 
+    setHasPlaybackError(false);
     hasResumedRef.current = false;
     fetchedDataRef.current = null;
     setIsDriveLoading(true);
@@ -235,18 +259,23 @@ export const CustomVideoPlayer: React.FC = () => {
       applyResume(videoRef.current);
     }
 
-    fetchVideoDetails(currentVideoId).then((data) => {
-      fetchedDataRef.current = data;
-      setVideoData(data);
-      if (videoRef.current) {
-        videoRef.current.playbackRate = playbackSpeed;
-        videoRef.current.volume = isMuted ? 0 : volume;
+    fetchVideoDetails(currentVideoId)
+      .then((data) => {
+        fetchedDataRef.current = data;
+        setVideoData(data);
+        setIsLessonCompleted(Boolean(data?.progress?.completed || data?.video?.completed));
+        if (videoRef.current) {
+          videoRef.current.playbackRate = playbackSpeed;
+          videoRef.current.volume = isMuted ? 0 : volume;
 
-        if (videoRef.current.readyState >= 1) {
-          applyResume(videoRef.current, data);
+          if (videoRef.current.readyState >= 1) {
+            applyResume(videoRef.current, data);
+          }
         }
-      }
-    });
+      })
+      .catch((err) => {
+        console.warn('Failed to load video details from backend:', err);
+      });
   }, [currentVideoId]);
 
   const handleLoadedMetadata = () => {
@@ -599,6 +628,15 @@ export const CustomVideoPlayer: React.FC = () => {
     );
   }
 
+  const GDRIVE_DEFAULTS: Record<string, string> = {
+    dsa: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
+    development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+  };
+  const activeProfile = getActiveProfile();
+  const driveFolderUrl =
+    activeProfile?.gdriveUrl ||
+    (activeProfile?.key === 'development' ? GDRIVE_DEFAULTS.development : GDRIVE_DEFAULTS.dsa);
+
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
@@ -672,16 +710,95 @@ export const CustomVideoPlayer: React.FC = () => {
         onDurationChange={handleDurationChange}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleVideoEnded}
+        onError={() => {
+          setHasPlaybackError(true);
+          setIsDriveLoading(false);
+        }}
         onWaiting={() => setIsDriveLoading(true)}
-        onPlaying={() => setIsDriveLoading(false)}
+        onPlaying={() => {
+          setIsDriveLoading(false);
+          setHasPlaybackError(false);
+        }}
         onClick={handleVideoAreaClick}
         onDoubleClick={toggleFullscreen}
-        className="w-full h-full object-contain cursor-pointer"
+        className={`w-full h-full object-contain cursor-pointer ${hasPlaybackError ? 'hidden' : 'block'}`}
         playsInline
       />
 
+      {/* Google Drive Standalone Cloud Mode Fallback Card */}
+      {hasPlaybackError && (
+        <div className="absolute inset-0 bg-canvas flex flex-col items-center justify-center p-6 text-center select-none z-10 motion-safe:animate-in motion-safe:fade-in">
+          <div className="max-w-lg w-full p-6 sm:p-8 rounded-2xl bg-card border border-border shadow-2xl space-y-5">
+            <div className="w-14 h-14 rounded-2xl bg-accent/15 text-accent flex items-center justify-center mx-auto border border-accent/25">
+              <FolderOpen className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 text-accent-text text-xs font-mono font-bold tracking-wide">
+                <span>Google Drive Mode</span>
+              </div>
+              <h2 className="text-xl font-bold text-text-main line-clamp-2">
+                {video ? `${video.badge ? `${video.badge} - ` : ''}${video.title}` : 'Course Lesson'}
+              </h2>
+              {section && (
+                <p className="text-xs text-text-muted">
+                  {section.badge ? `${section.badge}. ` : ''}{section.name}
+                </p>
+              )}
+            </div>
+
+            <p className="text-xs text-text-muted leading-relaxed">
+              This player is deployed standalone on the cloud. All progress, notes, bookmarks, and study statistics are tracked and stored in your browser's local storage.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-2">
+              <a
+                href={driveFolderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:flex-1 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Open in Google Drive</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!currentVideoId) return;
+                  const res = await toggleComplete(currentVideoId);
+                  setIsLessonCompleted(res.completed);
+                  showHud(res.completed ? 'Completed' : 'Incomplete');
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main text-xs font-semibold border border-border flex items-center justify-center gap-2 transition-colors"
+              >
+                <Check className={`w-4 h-4 ${isLessonCompleted ? 'text-accent' : 'text-text-muted'}`} />
+                <span>{isLessonCompleted ? 'Completed' : 'Mark Done'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-border/80 pt-3 text-xs text-text-dim">
+              <button
+                disabled={!prevVideo}
+                onClick={() => prevVideo && setCurrentVideoId(prevVideo._id)}
+                className="hover:text-text-main disabled:opacity-30 transition-colors flex items-center gap-1 font-medium"
+              >
+                <ChevronLeft className="w-4 h-4" /> Previous
+              </button>
+              <button
+                disabled={!nextVideo}
+                onClick={() => nextVideo && setCurrentVideoId(nextVideo._id)}
+                className="hover:text-text-main disabled:opacity-30 transition-colors flex items-center gap-1 font-medium"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Google Drive Loading / Buffering State */}
-      {isDriveLoading && (
+      {isDriveLoading && !hasPlaybackError && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-xs z-10 pointer-events-none">
           <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface/90 border border-border shadow-lg text-text-main text-xs font-medium">
             <CloudDownload className="w-4 h-4 text-accent animate-pulse" />

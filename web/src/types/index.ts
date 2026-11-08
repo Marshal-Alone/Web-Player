@@ -13,6 +13,8 @@ export interface Profile {
   key: ProfileKey;
   name: string;
   rootPath: string;
+  gdriveUrl?: string;
+  resolvedLocalPath?: string;
   order: number;
   lastScannedAt?: string;
   stats?: ProfileStats;
