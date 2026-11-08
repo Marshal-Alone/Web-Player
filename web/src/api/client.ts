@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
 export async function fetchProfiles() {
   const res = await fetch(`${API_BASE}/profiles`);
