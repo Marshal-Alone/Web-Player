@@ -12,19 +12,21 @@ export const isStandaloneMode =
       !(import.meta as any).env?.VITE_API_URL));
 
 async function safeFetchJson(url: string, options?: RequestInit) {
-  try {
-    const res = await fetch(url, options);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      throw new Error('Non-JSON response received');
-    }
-    return await res.json();
-  } catch (err) {
-    throw err;
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson?.error) errMsg = errJson.error;
+      else if (errJson?.message) errMsg = errJson.message;
+    } catch {}
+    throw new Error(errMsg);
   }
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Non-JSON response received');
+  }
+  return await res.json();
 }
 
 export async function fetchProfiles() {
@@ -125,7 +127,7 @@ function validateProfilePathLocally(id: string, rootPath?: string) {
   };
 }
 
-export async function scanProfile(id: string) {
+export async function scanProfile(id: string, rootPath?: string) {
   const profiles = localStore.getLocalProfiles();
   const prof = profiles.find((p) => p._id === id || p.key === id) || profiles[0];
   const targetId = prof?.key === 'dsa' ? '6aef1ffa40ee2964803d0e32' : '6aef1ffa40ee2964803d0e46';
@@ -141,14 +143,15 @@ export async function scanProfile(id: string) {
     return localScanRes;
   }
   try {
-    return await safeFetchJson(`${API_BASE}/profiles/${id}/scan`, {
+    const remote = await safeFetchJson(`${API_BASE}/profiles/${id}/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ rootPath })
     });
-  } catch (err) {
-    console.warn('[Scan] Remote scan error, falling back to local curriculum:', err);
-    return localScanRes;
+    return remote;
+  } catch (err: any) {
+    console.warn('[Scan] Remote scan error:', err);
+    throw err;
   }
 }
 

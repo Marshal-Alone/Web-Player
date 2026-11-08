@@ -86,12 +86,15 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
   );
 
   // Scan library for profile
-  app.post<{ Params: { id: string } }>('/api/profiles/:id/scan', async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: { rootPath?: string } }>('/api/profiles/:id/scan', async (req, reply) => {
     const { id } = req.params;
+    const { rootPath } = req.body || {};
     try {
-      const result = await scanProfileLibrary(id);
+      const result = await scanProfileLibrary(id, rootPath);
       return reply.send({ success: true, ...result });
     } catch (err: any) {
+      app.log.error(err);
+      console.error(`[Scan Error for profile ${id}]:`, err);
       return reply.status(400).send({ error: err.message || 'Scan failed' });
     }
   });

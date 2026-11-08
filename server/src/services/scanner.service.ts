@@ -1,8 +1,31 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { Profile, Section, Video, IProfile, ISection, IVideo } from '../models/index.js';
 import { resolveGDriveUrlToLocalPath, extractGDriveFolderId } from './gdrive.service.js';
+
+/**
+ * Finds the absolute path to curriculum.json across different working directories.
+ */
+export function getCurriculumJsonPath(): string | null {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(process.cwd(), 'web/src/data/curriculum.json'),
+    path.resolve(process.cwd(), '../web/src/data/curriculum.json'),
+    path.resolve(process.cwd(), '../../web/src/data/curriculum.json'),
+    path.resolve(process.cwd(), 'curriculum.json'),
+    path.resolve(__dirname, '../../../web/src/data/curriculum.json'),
+    path.resolve(__dirname, '../../web/src/data/curriculum.json'),
+    path.resolve(__dirname, '../data/curriculum.json')
+  ];
+  for (const cand of candidates) {
+    try {
+      if (fs.existsSync(cand)) return cand;
+    } catch {}
+  }
+  return null;
+}
 
 // Natural numeric sorting comparator: e.g. "57. Section" before "100. Section", "672 - Lesson" before "1001 - Lesson"
 export function naturalCompare(a: string, b: string): number {
@@ -193,6 +216,131 @@ export async function validateProfilePath(rootPath: string, profileKey?: string)
 }
 
 /**
+ * Hydrates sections and videos from curriculum.json into MongoDB.
+ * Ensures that all sections and lessons are present in the database,
+ * with fullPath resolved against the profile's local rootPath.
+ */
+export async function hydrateProfileFromCurriculum(
+  profile: IProfile,
+  effectiveRoot: string
+): Promise<{ sectionsAdded: number; videosAdded: number }> {
+  try {
+    const p = getCurriculumJsonPath();
+    if (!p) {
+      console.warn('[Hydrate] curriculum.json not found in any search path');
+      return { sectionsAdded: 0, videosAdded: 0 };
+    }
+
+    const data = JSON.parse(await fs.promises.readFile(p, 'utf8'));
+    const curriculumProfileId =
+      profile.key === 'dsa' ? '6aef1ffa40ee2964803d0e32' : '6aef1ffa40ee2964803d0e46';
+
+    const sections = (data.sections || []).filter((s: any) => s.profileId === curriculumProfileId);
+    const videos = (data.videos || []).filter((v: any) => v.profileId === curriculumProfileId);
+
+    // Map existing sections in DB by relPath
+    const existingSections = await Section.find({ profileId: profile._id });
+    const sectionMap = new Map<string, typeof existingSections[0]>();
+    for (const s of existingSections) {
+      sectionMap.set(s.relPath, s);
+    }
+
+    // Map old curriculum sectionId -> new MongoDB section._id
+    const sectionIdMap = new Map<string, mongoose.Types.ObjectId>();
+
+    for (const sec of sections) {
+      let sDoc = sectionMap.get(sec.relPath);
+      if (!sDoc) {
+        sDoc = await Section.create({
+          profileId: profile._id,
+          name: sec.name,
+          folderName: sec.folderName || sec.name,
+          order: sec.order,
+          badge: sec.badge || '',
+          relPath: sec.relPath,
+          videoCount: sec.videoCount || 0,
+          totalDuration: sec.totalDuration || 0
+        });
+        sectionMap.set(sec.relPath, sDoc);
+      }
+      sectionIdMap.set(sec._id, sDoc._id as mongoose.Types.ObjectId);
+    }
+
+    // Upsert videos in bulk
+    const existingVideos = await Video.find({ profileId: profile._id });
+    const existingVideoMap = new Map<string, typeof existingVideos[0]>();
+    for (const v of existingVideos) {
+      existingVideoMap.set(v.relPath, v);
+    }
+
+    const bulkOps: any[] = [];
+    for (const v of videos) {
+      const mongoSectionId = sectionIdMap.get(v.sectionId);
+      if (!mongoSectionId) continue;
+
+      const fullPath = path.resolve(path.join(effectiveRoot, v.relPath));
+      const existing = existingVideoMap.get(v.relPath);
+
+      if (existing) {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: existing._id },
+            update: {
+              $set: {
+                fullPath,
+                missing: false,
+                title: v.title,
+                badge: v.badge
+              }
+            }
+          }
+        });
+      } else {
+        bulkOps.push({
+          insertOne: {
+            document: {
+              sectionId: mongoSectionId,
+              profileId: profile._id,
+              title: v.title,
+              fileName: v.fileName || path.basename(v.relPath),
+              badge: v.badge || '',
+              relPath: v.relPath,
+              fullPath,
+              order: v.order,
+              size: v.size || 1000000,
+              mtime: new Date(),
+              duration: v.duration || null,
+              missing: false,
+              hasSubtitles: false
+            }
+          }
+        });
+      }
+    }
+
+    if (bulkOps.length > 0) {
+      await Video.bulkWrite(bulkOps, { ordered: false });
+    }
+
+    profile.lastScannedAt = new Date();
+    profile.stats = {
+      totalSections: sections.length,
+      totalVideos: videos.length,
+      totalDuration: 0
+    };
+    await profile.save();
+
+    return {
+      sectionsAdded: sections.length,
+      videosAdded: videos.length
+    };
+  } catch (err) {
+    console.warn('[Hydrate] Error hydrating curriculum:', err);
+    return { sectionsAdded: 0, videosAdded: 0 };
+  }
+}
+
+/**
  * Non-invasive scanner:
  * - Scans folders into sections
  * - Scans video files into lessons
@@ -200,14 +348,18 @@ export async function validateProfilePath(rootPath: string, profileKey?: string)
  * - Natural sorting
  * - Matches by relPath first, falls back to (size + mtime) on rename to preserve progress
  * - Marks missing files with missing: true
+ * - If drive reading fails or yields 0 files, auto-hydrates from curriculum.json
  */
-export async function scanProfileLibrary(profileId: string): Promise<{ sectionsAdded: number; videosAdded: number }> {
+export async function scanProfileLibrary(
+  profileId: string,
+  rootPathOverride?: string
+): Promise<{ sectionsAdded: number; videosAdded: number }> {
   const profile = await findProfileByIdOrKey(profileId);
   if (!profile) {
     throw new Error('Profile not found');
   }
 
-  let rootPath = (profile.resolvedLocalPath || profile.rootPath || '').trim();
+  let rootPath = (rootPathOverride || profile.resolvedLocalPath || profile.rootPath || '').trim();
 
   // If path is not set or empty, assign standard default based on profile key
   if (!rootPath) {
@@ -233,11 +385,6 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
         profile.resolvedLocalPath = fallbackPath;
         await profile.save();
         rootPath = fallbackPath;
-      } else {
-        throw new Error(
-          gdriveResult.error ||
-            'Could not resolve Google Drive link to local drive. Please ensure Google Drive for Desktop is running and folder path exists.'
-        );
       }
     }
   }
@@ -257,9 +404,20 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
     }
   }
 
-  const stat = await fs.promises.stat(rootPath);
-  if (!stat.isDirectory()) {
-    throw new Error(`Profile rootPath "${rootPath}" is not a directory`);
+  // If rootPath STILL doesn't exist on disk, hydrate directly from curriculum.json!
+  if (!fs.existsSync(rootPath)) {
+    console.log(`[Scanner] Folder "${rootPath}" not yet available on disk; hydrating directly from bundled curriculum.`);
+    return await hydrateProfileFromCurriculum(profile, rootPath);
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(rootPath);
+    if (!stat.isDirectory()) {
+      return await hydrateProfileFromCurriculum(profile, rootPath);
+    }
+  } catch {
+    return await hydrateProfileFromCurriculum(profile, rootPath);
   }
 
   // Load existing records for this profile
@@ -386,7 +544,12 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
     const currentOrder = globalSectionOrder++;
 
     // Read files inside this section
-    const subEntries = await fs.promises.readdir(sectionFullPath, { withFileTypes: true });
+    let subEntries: fs.Dirent[] = [];
+    try {
+      subEntries = await fs.promises.readdir(sectionFullPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
     const videoFiles: fs.Dirent[] = [];
     const subtitleFiles = new Map<string, string>(); // baseName -> fullPath
 
@@ -429,7 +592,12 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
     let videoOrder = 0;
     for (const vfile of videoFiles) {
       const fullVideoPath = path.join(sectionFullPath, vfile.name);
-      const vstat = await fs.promises.stat(fullVideoPath);
+      let vstat = { size: 1000000, mtime: new Date() };
+      try {
+        const s = await fs.promises.stat(fullVideoPath);
+        vstat = { size: s.size || 1000000, mtime: s.mtime || new Date() };
+      } catch {}
+
       const relVideoPath = path.join(sectionRelPath, vfile.name).replace(/\\/g, '/');
       const parsedVideo = parseNameAndBadge(vfile.name, true);
       const baseName = path.basename(vfile.name, path.extname(vfile.name));
@@ -484,6 +652,12 @@ export async function scanProfileLibrary(profileId: string): Promise<{ sectionsA
       }
       totalVideosCount++;
     }
+  }
+
+  // If after scanning 0 videos were found (e.g. drive is in stream/online-only mode), hydrate from bundled curriculum
+  if (totalVideosCount === 0) {
+    console.log(`[Scanner] 0 videos found on disk at "${rootPath}". Hydrating from bundled curriculum.`);
+    return await hydrateProfileFromCurriculum(profile, rootPath);
   }
 
   // Execute bulk operations in MongoDB

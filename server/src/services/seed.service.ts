@@ -76,17 +76,16 @@ export async function seedDefaultProfiles(): Promise<SeedResult> {
 
     profiles.push(profile);
 
-    // If local directory exists and profile has 0 videos, trigger background initial scan
-    const localEffective = getEffectiveLocalPath(profile);
-    if (localEffective && fs.existsSync(localEffective) && (!profile.stats || profile.stats.totalVideos === 0)) {
+    // If profile has 0 videos in MongoDB, automatically run initial scan / curriculum hydration
+    if (!profile.stats || profile.stats.totalVideos === 0) {
       const pid = profile._id.toString();
       const pName = profile.name;
       scanProfileLibrary(pid)
         .then((res) => {
-          console.log(`[Seeder] Auto-scanned library for ${pName}: indexed ${res.videosAdded} videos across ${res.sectionsAdded} sections`);
+          console.log(`[Seeder] Initialized library for ${pName}: indexed ${res.videosAdded} videos across ${res.sectionsAdded} sections`);
         })
         .catch((err) => {
-          console.warn(`[Seeder] Auto-scan for ${pName} scheduled for later:`, err.message);
+          console.warn(`[Seeder] Scan for ${pName} scheduled for later:`, err.message);
         });
     }
   }

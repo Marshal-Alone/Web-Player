@@ -42,28 +42,42 @@ export const PlayerSidebar: React.FC = () => {
       setLibraryData(data);
       if (!data?.sections) return;
 
-      // Check if currentVideoId actually exists in this course's library
-      const videoExistsInCourse = data.sections.some((sec: any) =>
-        sec.videos?.some((v: any) => v._id === currentVideoId)
-      );
+      const newExpanded = new Set<string>();
+      let activeFound = false;
 
-      if (!videoExistsInCourse || !currentVideoId) {
+      // Expand the section containing the current video if it exists
+      for (const sec of data.sections) {
+        if (currentVideoId && sec.videos?.some((v: any) => v._id === currentVideoId)) {
+          newExpanded.add(sec._id);
+          activeFound = true;
+          break;
+        }
+      }
+
+      // If active video not found or not set, auto-select first video and expand its section
+      if (!activeFound) {
         for (const sec of data.sections) {
           if (sec.videos && sec.videos.length > 0) {
             setCurrentVideoId(sec.videos[0]._id);
-            setExpandedSections(new Set([sec._id]));
-            break;
-          }
-        }
-      } else {
-        // Expand the section containing the current video
-        for (const sec of data.sections) {
-          if (sec.videos?.some((v: any) => v._id === currentVideoId)) {
-            setExpandedSections((prev) => new Set([...prev, sec._id]));
+            newExpanded.add(sec._id);
             break;
           }
         }
       }
+
+      // Ensure at least the first 2 sections with videos are expanded so lessons are immediately visible
+      for (const sec of data.sections) {
+        if (sec.videos && sec.videos.length > 0) {
+          newExpanded.add(sec._id);
+          if (newExpanded.size >= 2) break;
+        }
+      }
+
+      setExpandedSections((prev) => {
+        const combined = new Set(prev);
+        newExpanded.forEach((id) => combined.add(id));
+        return combined;
+      });
     });
   };
 

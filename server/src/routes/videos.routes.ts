@@ -4,7 +4,29 @@ import path from 'path';
 import mongoose from 'mongoose';
 import { Video, Section, Profile, Progress, WatchLog } from '../models/index.js';
 import { getEffectiveLocalPath } from '../services/gdrive.service.js';
-import { findProfileByIdOrKey } from '../services/scanner.service.js';
+import { findProfileByIdOrKey, getCurriculumJsonPath } from '../services/scanner.service.js';
+
+const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi']);
+
+// Curriculum ID mapping cache
+let curriculumVideosMap: Map<string, { relPath: string; badge: string; title: string }> | null = null;
+function getCurriculumVideo(id: string) {
+  if (!curriculumVideosMap) {
+    curriculumVideosMap = new Map();
+    try {
+      const p = getCurriculumJsonPath();
+      if (p && fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (Array.isArray(data.videos)) {
+          for (const v of data.videos) {
+            curriculumVideosMap.set(v._id, { relPath: v.relPath, badge: v.badge, title: v.title });
+          }
+        }
+      }
+    } catch {}
+  }
+  return curriculumVideosMap.get(id);
+}
 
 export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // Get video details with previous & next navigation
@@ -13,6 +35,17 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     let video = mongoose.Types.ObjectId.isValid(id) ? await Video.findById(id) : null;
     if (!video) {
       video = await Video.findOne({ badge: id });
+    }
+    if (!video) {
+      const cur = getCurriculumVideo(id);
+      if (cur) {
+        if (cur.relPath) {
+          video = await Video.findOne({ relPath: cur.relPath });
+        }
+        if (!video && cur.badge) {
+          video = await Video.findOne({ badge: cur.badge });
+        }
+      }
     }
     if (!video) {
       return reply.status(404).send({ error: 'Video not found' });
@@ -75,38 +108,55 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       video = await Video.findOne({ badge: id });
     }
     if (!video) {
+      const cur = getCurriculumVideo(id);
+      if (cur) {
+        if (cur.relPath) {
+          video = await Video.findOne({ relPath: cur.relPath });
+        }
+        if (!video && cur.badge) {
+          video = await Video.findOne({ badge: cur.badge });
+        }
+      }
+    }
+    if (!video) {
       return reply.status(404).send({ error: 'Video not found' });
     }
 
     const profile = await findProfileByIdOrKey(video.profileId.toString());
-    if (!profile) {
-      return reply.status(400).send({ error: 'Profile not found' });
-    }
-
-    const effectiveRoot = getEffectiveLocalPath(profile);
-    if (!effectiveRoot) {
-      return reply.status(400).send({ error: 'Profile root path not configured' });
-    }
+    const effectiveRoot = profile ? getEffectiveLocalPath(profile) : '';
 
     // Dynamic resolution if disk path moved, drive letter changed, or cloned to another laptop
     let resolvedPath = path.resolve(video.fullPath);
-    const resolvedRoot = path.resolve(effectiveRoot);
-    const normResolved = path.normalize(resolvedPath).toLowerCase();
-    const normRoot = path.normalize(resolvedRoot).toLowerCase();
 
-    if ((!fs.existsSync(resolvedPath) || !normResolved.startsWith(normRoot)) && video.relPath) {
-      const candidate = path.resolve(path.join(resolvedRoot, video.relPath));
-      if (fs.existsSync(candidate)) {
-        resolvedPath = candidate;
-        video.fullPath = candidate;
-        video.save().catch(() => {});
+    if (!fs.existsSync(resolvedPath)) {
+      if (effectiveRoot && video.relPath) {
+        const candidate = path.resolve(path.join(effectiveRoot, video.relPath));
+        if (fs.existsSync(candidate)) {
+          resolvedPath = candidate;
+          video.fullPath = candidate;
+          video.save().catch(() => {});
+        }
+      }
+      // If still not found, try G:\My Drive and other candidate roots
+      if (!fs.existsSync(resolvedPath) && video.relPath) {
+        const candidateDrives = ['G:\\My Drive', 'G:\\', 'H:\\My Drive', 'H:\\', 'F:\\My Drive', 'D:\\My Drive'];
+        const courseFolder = profile?.key === 'dsa' ? 'Apna College DSA' : 'Apna College Development';
+        for (const base of candidateDrives) {
+          const cand = path.resolve(path.join(base, courseFolder, video.relPath));
+          if (fs.existsSync(cand)) {
+            resolvedPath = cand;
+            video.fullPath = cand;
+            video.save().catch(() => {});
+            break;
+          }
+        }
       }
     }
 
-    // Security check: verify path is inside rootPath (case-insensitive on Windows)
-    const currentNormResolved = path.normalize(resolvedPath).toLowerCase();
-    if (!currentNormResolved.startsWith(normRoot)) {
-      return reply.status(403).send({ error: 'Access denied: file outside profile root' });
+    // Verify file extension is an allowed video format
+    const ext = path.extname(resolvedPath).toLowerCase();
+    if (!SUPPORTED_VIDEO_EXTS.has(ext)) {
+      return reply.status(403).send({ error: 'Access denied: not a supported video file' });
     }
 
     let stat: fs.Stats;
@@ -120,7 +170,6 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     const range = req.headers.range;
 
     // Determine MIME type
-    const ext = path.extname(resolvedPath).toLowerCase();
     let mimeType = 'video/mp4';
     if (ext === '.webm') mimeType = 'video/webm';
     else if (ext === '.mkv') mimeType = 'video/x-matroska';

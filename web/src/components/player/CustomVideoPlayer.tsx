@@ -7,7 +7,8 @@ import {
   beaconProgress,
   updateVideoDuration,
   fetchVideoDetails,
-  toggleComplete
+  toggleComplete,
+  isStandaloneMode
 } from '../../api/client.js';
 import {
   Play,
@@ -746,14 +747,14 @@ export const CustomVideoPlayer: React.FC = () => {
       {/* Google Drive Standalone Cloud Mode Fallback Card */}
       {hasPlaybackError && (
         <div className="absolute inset-0 bg-canvas flex flex-col items-center justify-center p-6 text-center select-none z-10 motion-safe:animate-in motion-safe:fade-in">
-          <div className="max-w-lg w-full p-6 sm:p-8 rounded-2xl bg-card border border-border shadow-2xl space-y-5">
+          <div className="max-w-lg w-full p-6 sm:p-8 rounded-2xl bg-card border border-border shadow-2xl space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-accent/15 text-accent flex items-center justify-center mx-auto border border-accent/25">
               <FolderOpen className="w-7 h-7" />
             </div>
 
             <div className="space-y-1.5">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 text-accent-text text-xs font-mono font-bold tracking-wide">
-                <span>Google Drive Mode</span>
+                <span>{isStandaloneMode ? 'Google Drive Mode (Cloud)' : 'Stream Loading / Local Server'}</span>
               </div>
               <h2 className="text-xl font-bold text-text-main line-clamp-2">
                 {video ? `${video.badge ? `${video.badge} - ` : ''}${video.title}` : 'Course Lesson'}
@@ -765,20 +766,57 @@ export const CustomVideoPlayer: React.FC = () => {
               )}
             </div>
 
+            {/* Exact Drive Folder and File Location Box */}
+            {video?.relPath && (
+              <div className="p-3 rounded-xl bg-surface/80 border border-border text-left text-xs space-y-1">
+                <div className="text-[10px] text-text-dim uppercase tracking-wider font-semibold">
+                  Google Drive File Path:
+                </div>
+                <div className="text-text-main font-mono text-[11px] truncate flex items-center gap-1.5">
+                  <FolderOpen className="w-3.5 h-3.5 text-accent shrink-0" />
+                  <span className="font-semibold text-accent-text">
+                    {activeProfile?.name || 'Apna College Development'}
+                  </span>
+                  <span className="text-text-dim">/</span>
+                  <span className="truncate">{video.relPath}</span>
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-text-muted leading-relaxed">
-              This player is deployed standalone on the cloud. All progress, notes, bookmarks, and study statistics are tracked and stored in your browser's local storage.
+              {isStandaloneMode
+                ? "This player is hosted on Netlify (cloud), so it cannot directly read your laptop's local G: drive. To stream videos directly in the player with 0 latency, run the server locally on your laptop with npm run dev."
+                : 'Connecting to your local Google Drive for Desktop stream. If Google Drive is set to stream files, it will fetch this video on demand.'}
             </p>
 
             <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-2">
+              {!isStandaloneMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasPlaybackError(false);
+                    setIsDriveLoading(true);
+                    if (videoRef.current) {
+                      videoRef.current.load();
+                      videoRef.current.play().catch(() => {});
+                    }
+                  }}
+                  className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  <span>Retry Streaming</span>
+                </button>
+              )}
+
               <a
                 href={lessonSearchUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 title={`Search "${video?.title}" in Google Drive`}
-                className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg"
+                className={`w-full ${isStandaloneMode ? 'sm:flex-1 bg-accent text-white hover:bg-accent-hover shadow-lg' : 'sm:w-auto bg-surface text-text-main hover:bg-surface-hover border border-border'} px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors`}
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Open Lesson in Drive</span>
+                <span>Search in Drive</span>
               </a>
 
               {section && (
@@ -790,7 +828,7 @@ export const CustomVideoPlayer: React.FC = () => {
                   className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main text-xs font-medium border border-border flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <FolderOpen className="w-4 h-4 text-accent" />
-                  <span>Section Folder</span>
+                  <span>Folder</span>
                 </a>
               )}
 
