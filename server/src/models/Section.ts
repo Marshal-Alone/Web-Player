@@ -7,6 +7,7 @@ export interface ISection extends Document {
   order: number;
   badge: string;
   relPath: string;
+  slug?: string;
   videoCount: number;
   totalDuration: number;
   createdAt: Date;
@@ -45,6 +46,12 @@ const SectionSchema = new Schema<ISection>(
       type: String,
       required: true,
       trim: true
+    },
+    slug: {
+      type: String,
+      default: function (this: any) {
+        return `${this.profileId || 'sec'}_${this.order ?? 0}_${Math.random().toString(36).substring(2, 9)}`;
+      }
     },
     videoCount: {
       type: Number,

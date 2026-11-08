@@ -248,9 +248,18 @@ export async function hydrateProfileFromCurriculum(
     // Map old curriculum sectionId -> new MongoDB section._id
     const sectionIdMap = new Map<string, mongoose.Types.ObjectId>();
 
+    // Drop obsolete slug_1 index from sections collection if it exists
+    try {
+      const db = mongoose.connection.db;
+      if (db) {
+        await db.collection('sections').dropIndex('slug_1').catch(() => {});
+      }
+    } catch {}
+
     for (const sec of sections) {
       let sDoc = sectionMap.get(sec.relPath);
       if (!sDoc) {
+        const uniqueSlug = `${profile._id}_${sec.order}_${sec.badge || Math.random().toString(36).substring(2, 8)}`;
         sDoc = await Section.create({
           profileId: profile._id,
           name: sec.name,
@@ -259,7 +268,8 @@ export async function hydrateProfileFromCurriculum(
           badge: sec.badge || '',
           relPath: sec.relPath,
           videoCount: sec.videoCount || 0,
-          totalDuration: sec.totalDuration || 0
+          totalDuration: sec.totalDuration || 0,
+          slug: uniqueSlug
         });
         sectionMap.set(sec.relPath, sDoc);
       }
@@ -358,6 +368,14 @@ export async function scanProfileLibrary(
   if (!profile) {
     throw new Error('Profile not found');
   }
+
+  // Ensure obsolete slug_1 index is dropped from sections collection
+  try {
+    const db = mongoose.connection.db;
+    if (db) {
+      await db.collection('sections').dropIndex('slug_1').catch(() => {});
+    }
+  } catch {}
 
   let rootPath = (rootPathOverride || profile.resolvedLocalPath || profile.rootPath || '').trim();
 
@@ -477,6 +495,7 @@ export async function scanProfileLibrary(
         order: globalSectionOrder++,
         badge: '0',
         relPath: '',
+        slug: `${profile._id}_general_${Math.random().toString(36).substring(2, 8)}`,
         videoCount: rootVideoEntries.length,
         totalDuration: 0
       });
@@ -577,6 +596,7 @@ export async function scanProfileLibrary(
         order: currentOrder,
         badge: parsedSection.badge,
         relPath: sectionRelPath,
+        slug: `${profile._id}_${currentOrder}_${parsedSection.badge || Math.random().toString(36).substring(2, 8)}`,
         videoCount: videoFiles.length,
         totalDuration: 0
       });

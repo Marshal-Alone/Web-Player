@@ -48,6 +48,7 @@ export async function connectDB(targetUri?: string): Promise<typeof mongoose> {
         maxPoolSize: 10
       });
       isConnecting = false;
+      await sanitizeIndexes();
       return conn;
     } catch (err) {
       console.warn('[MongoDB] Failed to connect to configured remote MONGO_URI. Attempting local MongoDB fallback...', err);
@@ -68,6 +69,7 @@ export async function connectDB(targetUri?: string): Promise<typeof mongoose> {
     });
     isConnecting = false;
     console.log(`[MongoDB] Successfully connected to local MongoDB (${localTarget})`);
+    await sanitizeIndexes();
     return conn;
   } catch (localErr: any) {
     if (ATLAS_FALLBACK_MONGO_URI) {
@@ -80,6 +82,7 @@ export async function connectDB(targetUri?: string): Promise<typeof mongoose> {
         });
         isConnecting = false;
         console.log('[MongoDB] Successfully connected to fallback MongoDB Atlas cluster');
+        await sanitizeIndexes();
         return conn;
       } catch (atlasErr) {
         isConnecting = false;
@@ -103,4 +106,39 @@ export async function disconnectDB(): Promise<void> {
 
 export function isDbConnected(): boolean {
   return mongoose.connection.readyState === 1;
+}
+
+/**
+ * Drops any legacy or obsolete unique indexes (such as 'slug_1' on sections)
+ * that cause E11000 duplicate key errors on freshly scanned or cloned databases.
+ */
+export async function sanitizeIndexes(): Promise<void> {
+  try {
+    const db = mongoose.connection.db;
+    if (!db) return;
+
+    const collectionsToCheck = ['sections', 'videos', 'profiles', 'progresses'];
+    for (const collName of collectionsToCheck) {
+      try {
+        const collections = await db.listCollections({ name: collName }).toArray();
+        if (collections.length === 0) continue;
+
+        const coll = db.collection(collName);
+        const indexes = await coll.indexes();
+        for (const idx of indexes) {
+          const indexName = idx.name;
+          if (!indexName) continue;
+          if (indexName === 'slug_1' || (idx.key && (idx.key as any).slug)) {
+            console.log(`[MongoDB] Dropping obsolete unique index "${indexName}" from "${collName}" collection...`);
+            await coll.dropIndex(indexName);
+            console.log(`[MongoDB] Successfully removed obsolete index "${indexName}".`);
+          }
+        }
+      } catch (err: any) {
+        // Individual index errors are non-fatal
+      }
+    }
+  } catch (err: any) {
+    console.warn('[MongoDB] Index sanitization note:', err?.message);
+  }
 }
