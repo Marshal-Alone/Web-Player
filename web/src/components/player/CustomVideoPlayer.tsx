@@ -711,27 +711,37 @@ export const CustomVideoPlayer: React.FC = () => {
       </div>
 
       {/* HTML5 Native Video Tag */}
-      <video
-        ref={videoRef}
-        src={`/api/videos/${currentVideoId}/stream`}
-        onLoadedMetadata={handleLoadedMetadata}
-        onDurationChange={handleDurationChange}
-        onTimeUpdate={handleTimeUpdate}
-        onEnded={handleVideoEnded}
-        onError={() => {
-          setHasPlaybackError(true);
-          setIsDriveLoading(false);
-        }}
-        onWaiting={() => setIsDriveLoading(true)}
-        onPlaying={() => {
-          setIsDriveLoading(false);
-          setHasPlaybackError(false);
-        }}
-        onClick={handleVideoAreaClick}
-        onDoubleClick={toggleFullscreen}
-        className={`w-full h-full object-contain cursor-pointer ${hasPlaybackError ? 'hidden' : 'block'}`}
-        playsInline
-      />
+      {currentVideoId ? (
+        <video
+          ref={videoRef}
+          src={`/api/videos/${currentVideoId}/stream`}
+          onLoadedMetadata={handleLoadedMetadata}
+          onDurationChange={handleDurationChange}
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleVideoEnded}
+          onError={() => {
+            setHasPlaybackError(true);
+            setIsDriveLoading(false);
+          }}
+          onWaiting={() => setIsDriveLoading(true)}
+          onPlaying={() => {
+            setIsDriveLoading(false);
+            setHasPlaybackError(false);
+          }}
+          onClick={handleVideoAreaClick}
+          onDoubleClick={toggleFullscreen}
+          className={`w-full h-full object-contain cursor-pointer ${hasPlaybackError ? 'hidden' : 'block'}`}
+          playsInline
+        />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center select-none bg-canvas text-text-muted">
+          <FolderOpen className="w-12 h-12 text-accent/60 mb-3" />
+          <h3 className="text-base font-bold text-text-main">Select a lesson to begin</h3>
+          <p className="text-xs text-text-dim mt-1 max-w-sm">
+            Choose any lesson from the course path on the left to start streaming.
+          </p>
+        </div>
+      )}
 
       {/* Google Drive Standalone Cloud Mode Fallback Card */}
       {hasPlaybackError && (

@@ -36,21 +36,13 @@ if not exist "web\node_modules\" (
     cd ..
 )
 
-:: Build web if dist is missing
-if not exist "web\dist\" (
-    echo [Build] Building web application...
-    cd web
-    call npm run build
-    cd ..
-)
-
-:: Build server if dist is missing
-if not exist "server\dist\" (
-    echo [Build] Building server application...
-    cd server
-    call npm run build
-    cd ..
-)
+:: Build server and web applications to ensure latest updates
+echo [Build] Compiling latest updates...
+cd server
+call npm run build
+cd ..\web
+call npm run build
+cd ..
 
 :: Check if server is already running on port 4000
 netstat -ano | findstr /R ":4000.*LISTENING" >nul 2>nul

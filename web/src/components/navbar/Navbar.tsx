@@ -66,22 +66,25 @@ export const Navbar: React.FC = () => {
 
       {/* Navigation Controls */}
       <div className="flex items-center gap-2">
-        {currentVideoId && currentView !== 'player' && (
-          <button
-            onClick={() => setCurrentView('player')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-accent/15 text-accent-text hover:bg-accent/25 border border-accent/20 transition-colors"
-          >
-            <PlayCircle className="w-3.5 h-3.5" />
-            Resume Video
-          </button>
-        )}
+        <button
+          onClick={() => setCurrentView('player')}
+          title={currentVideoId ? 'Resume active lesson' : 'Open course player'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            currentView === 'player'
+              ? 'bg-accent text-white shadow-sm font-semibold'
+              : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
+          }`}
+        >
+          <PlayCircle className="w-3.5 h-3.5" />
+          {currentVideoId ? 'Resume' : 'Player'}
+        </button>
 
         <button
           onClick={() => setCurrentView('library')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
             currentView === 'library'
-              ? 'bg-surface-hover text-text-main border border-border'
-              : 'text-text-muted hover:text-text-main'
+              ? 'bg-accent text-white shadow-sm font-semibold'
+              : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
           }`}
         >
           <BookOpen className="w-3.5 h-3.5" />

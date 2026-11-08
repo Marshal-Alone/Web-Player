@@ -91,8 +91,10 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     // Dynamic resolution if disk path moved, drive letter changed, or cloned to another laptop
     let resolvedPath = path.resolve(video.fullPath);
     const resolvedRoot = path.resolve(effectiveRoot);
+    const normResolved = path.normalize(resolvedPath).toLowerCase();
+    const normRoot = path.normalize(resolvedRoot).toLowerCase();
 
-    if (!fs.existsSync(resolvedPath) && video.relPath) {
+    if ((!fs.existsSync(resolvedPath) || !normResolved.startsWith(normRoot)) && video.relPath) {
       const candidate = path.resolve(path.join(resolvedRoot, video.relPath));
       if (fs.existsSync(candidate)) {
         resolvedPath = candidate;
@@ -101,8 +103,9 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       }
     }
 
-    // Security check: verify path is inside rootPath
-    if (!resolvedPath.startsWith(resolvedRoot)) {
+    // Security check: verify path is inside rootPath (case-insensitive on Windows)
+    const currentNormResolved = path.normalize(resolvedPath).toLowerCase();
+    if (!currentNormResolved.startsWith(normRoot)) {
       return reply.status(403).send({ error: 'Access denied: file outside profile root' });
     }
 

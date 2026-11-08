@@ -200,14 +200,14 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
     if (profile.currentVideoId) {
       targetVideo = await Video.findById(profile.currentVideoId);
       if (targetVideo && !targetVideo.missing) {
-        prog = await Progress.findOne({ profileId: id, videoId: targetVideo._id });
+        prog = await Progress.findOne({ profileId: profile._id, videoId: targetVideo._id });
       } else {
         targetVideo = null;
       }
     }
 
     if (!targetVideo) {
-      const recentProgress = await Progress.find({ profileId: id })
+      const recentProgress = await Progress.find({ profileId: profile._id })
         .sort({ lastWatched: -1 })
         .limit(1);
 
@@ -218,11 +218,29 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
     }
 
     if (!targetVideo) {
-      // If no watched videos, fallback to the very first video in the first section
-      const firstVideo = await Video.findOne({ profileId: id, missing: false }).sort({ order: 1 });
+      // If no watched videos, fallback to the very first video in the first section with videos
+      const firstSectionWithVideos = await Section.findOne({
+        profileId: profile._id,
+        videoCount: { $gt: 0 }
+      }).sort({ order: 1 });
+
+      let firstVideo: any = null;
+      if (firstSectionWithVideos) {
+        firstVideo = await Video.findOne({
+          profileId: profile._id,
+          sectionId: firstSectionWithVideos._id,
+          missing: false
+        }).sort({ order: 1 });
+      }
+
+      if (!firstVideo) {
+        firstVideo = await Video.findOne({ profileId: profile._id, missing: false }).sort({ order: 1 });
+      }
+
       if (!firstVideo) {
         return reply.send({ continueVideo: null });
       }
+
       const section = await Section.findById(firstVideo.sectionId);
       return reply.send({
         continueVideo: {
@@ -231,7 +249,8 @@ export const profileRoutes: FastifyPluginAsync = async (app: FastifyInstance) =>
           currentTime: 0,
           duration: firstVideo.duration || 0,
           percent: 0,
-          completed: false
+          completed: false,
+          isFirstLesson: true
         }
       });
     }

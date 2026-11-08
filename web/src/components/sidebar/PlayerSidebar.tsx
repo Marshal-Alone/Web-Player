@@ -40,7 +40,40 @@ export const PlayerSidebar: React.FC = () => {
     const targetId = profile?._id || activeProfileKey || 'dsa';
     fetchLibrary(targetId).then((data) => {
       setLibraryData(data);
+      if (!data?.sections) return;
+
+      // Check if currentVideoId actually exists in this course's library
+      const videoExistsInCourse = data.sections.some((sec: any) =>
+        sec.videos?.some((v: any) => v._id === currentVideoId)
+      );
+
+      if (!videoExistsInCourse || !currentVideoId) {
+        for (const sec of data.sections) {
+          if (sec.videos && sec.videos.length > 0) {
+            setCurrentVideoId(sec.videos[0]._id);
+            setExpandedSections(new Set([sec._id]));
+            break;
+          }
+        }
+      } else {
+        // Expand the section containing the current video
+        for (const sec of data.sections) {
+          if (sec.videos?.some((v: any) => v._id === currentVideoId)) {
+            setExpandedSections((prev) => new Set([...prev, sec._id]));
+            break;
+          }
+        }
+      }
     });
+  };
+
+  const toggleExpandAll = () => {
+    if (!libraryData?.sections) return;
+    if (expandedSections.size >= libraryData.sections.length) {
+      setExpandedSections(new Set());
+    } else {
+      setExpandedSections(new Set(libraryData.sections.map((s: any) => s._id)));
+    }
   };
 
   useEffect(() => {
@@ -136,7 +169,15 @@ export const PlayerSidebar: React.FC = () => {
             {profile?.name || 'Course Path'}
           </h2>
           <div className="flex items-center justify-between text-xs text-text-muted mt-1">
-            <span>Overall Progress</span>
+            <span className="flex items-center gap-2">
+              <span>Overall Progress</span>
+              <button
+                onClick={toggleExpandAll}
+                className="text-[10px] text-accent hover:underline font-normal"
+              >
+                {expandedSections.size >= (libraryData?.sections?.length || 1) ? 'Collapse all' : 'Expand all'}
+              </button>
+            </span>
             <span className="font-mono font-semibold text-text-main">{overallPercent}%</span>
           </div>
           {/* Progress bar */}
@@ -195,16 +236,21 @@ export const PlayerSidebar: React.FC = () => {
               {/* Lesson Items */}
               {isExpanded && (
                 <div className="border-t border-border/40 divide-y divide-border/20">
-                  {section.videos.map((lesson: any) => {
-                    const isActive = lesson._id === currentVideoId;
-                    const isCompleted = lesson.progress?.completed || false;
-                    const lessonPercent = lesson.progress?.percent || 0;
+                  {section.videos.length === 0 ? (
+                    <div className="px-4 py-2.5 text-[11px] text-text-dim italic">
+                      No video files in this folder (Documentation or Resource links only)
+                    </div>
+                  ) : (
+                    section.videos.map((lesson: any) => {
+                      const isActive = lesson._id === currentVideoId;
+                      const isCompleted = lesson.progress?.completed || false;
+                      const lessonPercent = lesson.progress?.percent || 0;
 
-                    return (
-                      <div
-                        key={lesson._id}
-                        ref={isActive ? activeLessonRef : null}
-                        onClick={() => setCurrentVideoId(lesson._id)}
+                      return (
+                        <div
+                          key={lesson._id}
+                          ref={isActive ? activeLessonRef : null}
+                          onClick={() => setCurrentVideoId(lesson._id)}
                         className={`group px-3 py-2.5 flex flex-col gap-1 cursor-pointer transition-colors ${
                           isActive
                             ? 'bg-accent/20 border-l-4 border-l-accent text-text-main font-medium'
@@ -260,7 +306,8 @@ export const PlayerSidebar: React.FC = () => {
                         )}
                       </div>
                     );
-                  })}
+                  })
+                )}
                 </div>
               )}
             </div>

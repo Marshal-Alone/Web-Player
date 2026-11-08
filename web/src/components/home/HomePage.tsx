@@ -133,7 +133,7 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Continue Watching Hero Card */}
+      {/* Continue Watching / Start Learning Hero Card */}
       {(() => {
         if (!continueData) return null;
         const contVideo = continueData.video || continueData;
@@ -141,9 +141,10 @@ export const HomePage: React.FC = () => {
         if (!contVideo || !contVideo._id) return null;
 
         const contBadge = contVideo.badge;
-        const contTitle = contVideo.title || 'Resume Lesson';
+        const contTitle = contVideo.title || 'Start Learning';
         const contTime = Math.floor((continueData.currentTime || contVideo.progress?.currentTime || 0) / 60);
         const contPercent = continueData.percent || 0;
+        const isFirst = Boolean(continueData.isFirstLesson || (contPercent === 0 && contTime === 0));
 
         return (
           <div className="relative rounded-2xl border border-accent/40 bg-gradient-to-r from-accent/15 via-card to-card p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden">
@@ -158,7 +159,7 @@ export const HomePage: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[11px] uppercase font-bold tracking-wider text-accent-text">
-                    Continue Watching
+                    {isFirst ? 'Start Course' : 'Continue Watching'}
                   </span>
                   {contSection && (
                     <span className="text-xs text-text-dim font-medium">
@@ -171,9 +172,15 @@ export const HomePage: React.FC = () => {
                   {contTitle}
                 </h2>
                 <div className="flex items-center gap-4 text-xs text-text-muted">
-                  <span>{contPercent}% watched</span>
-                  <span>•</span>
-                  <span>Resume from {contTime}m</span>
+                  {isFirst ? (
+                    <span className="text-accent-text font-medium">Ready to begin lesson 1</span>
+                  ) : (
+                    <>
+                      <span>{contPercent}% watched</span>
+                      <span>•</span>
+                      <span>Resume from {contTime}m</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -182,7 +189,7 @@ export const HomePage: React.FC = () => {
               onClick={() => handleStartLesson(contVideo._id)}
               className="px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-sm shadow-md transition-colors flex items-center gap-2 self-stretch md:self-center justify-center shrink-0"
             >
-              <span>Resume Lesson</span>
+              <span>{isFirst ? 'Start Learning' : 'Resume Lesson'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -247,10 +254,21 @@ export const HomePage: React.FC = () => {
                   ? Math.round((section.completedCount / section.videoCount) * 100)
                   : 0;
 
+              const hasVideos = section.videos && section.videos.length > 0;
+
               return (
                 <div
                   key={section._id}
-                  className="rounded-2xl bg-card border border-border hover:border-accent/50 p-5 flex flex-col justify-between transition-colors shadow-sm group"
+                  onClick={() => {
+                    if (hasVideos) {
+                      handleStartLesson(section.videos[0]._id);
+                    }
+                  }}
+                  className={`rounded-2xl bg-card border border-border p-5 flex flex-col justify-between transition-all shadow-sm group ${
+                    hasVideos
+                      ? 'hover:border-accent/60 cursor-pointer hover:shadow-md'
+                      : 'opacity-75'
+                  }`}
                 >
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2">
@@ -262,11 +280,15 @@ export const HomePage: React.FC = () => {
                         <span />
                       )}
                       <span className="text-xs font-mono font-semibold text-text-dim">
-                        {section.completedCount}/{section.videoCount} completed
+                        {section.videoCount > 0
+                          ? `${section.completedCount}/${section.videoCount} completed`
+                          : 'Resources only'}
                       </span>
                     </div>
 
-                    <h4 className="text-sm font-bold text-text-main group-hover:text-accent-text transition-colors line-clamp-2">
+                    <h4 className={`text-sm font-bold text-text-main transition-colors line-clamp-2 ${
+                      hasVideos ? 'group-hover:text-accent-text' : ''
+                    }`}>
                       {section.name}
                     </h4>
                   </div>
@@ -290,17 +312,22 @@ export const HomePage: React.FC = () => {
                     <div className="pt-2 border-t border-border/50 flex items-center justify-between">
                       <span className="text-[11px] text-text-dim flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatDuration(section.totalDuration)}
+                        {section.videoCount > 0 ? formatDuration(section.totalDuration) : 'No videos'}
                       </span>
 
-                      {section.videos.length > 0 && (
+                      {hasVideos ? (
                         <button
-                          onClick={() => handleStartLesson(section.videos[0]._id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartLesson(section.videos[0]._id);
+                          }}
                           className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
                         >
                           <span>Open</span>
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
+                      ) : (
+                        <span className="text-[11px] text-text-dim italic">Docs only</span>
                       )}
                     </div>
                   </div>
