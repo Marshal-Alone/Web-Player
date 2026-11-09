@@ -106,17 +106,48 @@ export const CustomVideoPlayer: React.FC = () => {
     hudTimeoutRef.current = setTimeout(() => setHudMessage(null), 1400);
   };
 
-  // Activity timer for hiding controls
-  const handleUserActivity = () => {
+  // Activity timer for hiding controls and cursor
+  const handleUserActivity = useCallback(() => {
     setIsControlsVisible(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (isPlaying) {
+    if (isPlaying || (typeof document !== 'undefined' && Boolean(document.fullscreenElement))) {
       controlsTimeoutRef.current = setTimeout(() => {
         setIsControlsVisible(false);
         setIsSpeedMenuOpen(false);
-      }, 3000);
+      }, 2500);
     }
-  };
+  }, [isPlaying]);
+
+  // Sync controls and cursor visibility when playback changes
+  useEffect(() => {
+    if (isPlaying) {
+      handleUserActivity();
+    } else {
+      setIsControlsVisible(true);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    }
+  }, [isPlaying, handleUserActivity]);
+
+  // Fullscreen change listener to sync state and auto-hide cursor
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = typeof document !== 'undefined' && Boolean(document.fullscreenElement);
+      setIsFullscreen(isNowFullscreen);
+      handleUserActivity();
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, [handleUserActivity]);
 
   // Play / Pause Toggle
   const togglePlay = () => {
@@ -511,10 +542,8 @@ export const CustomVideoPlayer: React.FC = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
 
@@ -647,12 +676,16 @@ export const CustomVideoPlayer: React.FC = () => {
     : driveFolderUrl;
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isCursorHidden = !isControlsVisible && (isPlaying || isFullscreen);
 
   return (
     <div
       ref={containerRef}
       onMouseMove={handleUserActivity}
-      className="relative flex flex-col items-center justify-center bg-black select-none w-full h-full overflow-hidden"
+      onClick={handleUserActivity}
+      className={`relative flex flex-col items-center justify-center bg-black select-none w-full h-full overflow-hidden ${
+        isCursorHidden ? 'cursor-none [&_*]:!cursor-none' : ''
+      }`}
     >
       {/* Top Header Bar inside Video Container */}
       <div
@@ -731,7 +764,9 @@ export const CustomVideoPlayer: React.FC = () => {
           }}
           onClick={handleVideoAreaClick}
           onDoubleClick={toggleFullscreen}
-          className={`w-full h-full object-contain cursor-pointer ${hasPlaybackError ? 'hidden' : 'block'}`}
+          className={`w-full h-full object-contain ${
+            isCursorHidden ? 'cursor-none' : 'cursor-pointer'
+          } ${hasPlaybackError ? 'hidden' : 'block'}`}
           playsInline
         />
       ) : (
