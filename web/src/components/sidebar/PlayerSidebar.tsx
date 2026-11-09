@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useProfileStore } from '../../stores/useProfileStore.js';
 import { usePlayerStore } from '../../stores/usePlayerStore.js';
 import { useUIStore } from '../../stores/useUIStore.js';
@@ -10,7 +10,8 @@ import {
   Circle,
   ArrowLeft,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  BookOpen
 } from 'lucide-react';
 
 function formatDuration(sec: number | null): string {
@@ -33,8 +34,30 @@ export const PlayerSidebar: React.FC = () => {
   const profile = getActiveProfile();
   const [libraryData, setLibraryData] = useState<any>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const activeSectionRef = useRef<HTMLDivElement>(null);
   const activeLessonRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Smoothly scroll the sidebar to center the current folder / lesson
+  const scrollToActive = useCallback((smooth = true) => {
+    if (!scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const target = activeLessonRef.current || activeSectionRef.current;
+    if (!target) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const currentScrollTop = container.scrollTop;
+    const relativeOffset = targetRect.top - containerRect.top;
+
+    // Position the active section/lesson neatly near the top of the sidebar (with 16px padding)
+    const newScrollTop = Math.max(0, currentScrollTop + relativeOffset - 16);
+
+    container.scrollTo({
+      top: newScrollTop,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }, []);
 
   const loadData = () => {
     const targetId = profile?._id || activeProfileKey || 'dsa';
@@ -60,16 +83,19 @@ export const PlayerSidebar: React.FC = () => {
           if (sec.videos && sec.videos.length > 0) {
             setCurrentVideoId(sec.videos[0]._id);
             newExpanded.add(sec._id);
+            activeFound = true;
             break;
           }
         }
       }
 
-      // Ensure at least the first 2 sections with videos are expanded so lessons are immediately visible
-      for (const sec of data.sections) {
-        if (sec.videos && sec.videos.length > 0) {
-          newExpanded.add(sec._id);
-          if (newExpanded.size >= 2) break;
+      // ONLY if active video still wasn't found, ensure first 2 sections are expanded
+      if (!activeFound) {
+        for (const sec of data.sections) {
+          if (sec.videos && sec.videos.length > 0) {
+            newExpanded.add(sec._id);
+            if (newExpanded.size >= 2) break;
+          }
         }
       }
 
@@ -94,34 +120,35 @@ export const PlayerSidebar: React.FC = () => {
     loadData();
   }, [profile?._id, activeProfileKey, currentVideoId]);
 
-  // Auto-expand and scroll active section into view without scrolling the browser window
+  // Auto-expand current playing folder and scroll directly to it
   useEffect(() => {
     if (!libraryData?.sections || !currentVideoId) return;
 
+    // Expand current folder
     for (const sec of libraryData.sections) {
-      const hasCurrent = sec.videos.some((v: any) => v._id === currentVideoId);
+      const hasCurrent = sec.videos?.some((v: any) => v._id === currentVideoId);
       if (hasCurrent) {
-        setExpandedSections((prev) => new Set([...prev, sec._id]));
+        setExpandedSections((prev) => {
+          if (prev.has(sec._id)) return prev;
+          const next = new Set(prev);
+          next.add(sec._id);
+          return next;
+        });
         break;
       }
     }
 
-    const timer = setTimeout(() => {
-      if (scrollContainerRef.current && activeLessonRef.current) {
-        const container = scrollContainerRef.current;
-        const item = activeLessonRef.current;
-        const containerRect = container.getBoundingClientRect();
-        const itemRect = item.getBoundingClientRect();
+    // Scroll immediately and with progressive delays to guarantee layout settled
+    const t1 = setTimeout(() => scrollToActive(false), 50);
+    const t2 = setTimeout(() => scrollToActive(true), 200);
+    const t3 = setTimeout(() => scrollToActive(true), 450);
 
-        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
-          const offset = itemRect.top - containerRect.top - container.clientHeight / 2 + item.clientHeight / 2;
-          container.scrollTo({ top: container.scrollTop + offset, behavior: 'smooth' });
-        }
-      }
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [currentVideoId, libraryData]);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [currentVideoId, libraryData, isSidebarCollapsed, scrollToActive]);
 
   const toggleSection = (sectionId: string) => {
     setExpandedSections((prev) => {
@@ -138,24 +165,46 @@ export const PlayerSidebar: React.FC = () => {
     loadData();
   };
 
+  const overallPercent = libraryData?.overallProgress?.percent || 0;
+
   if (isSidebarCollapsed) {
     return (
-      <aside className="w-12 border-r border-border bg-surface flex flex-col items-center py-3 select-none z-20">
-        <button
-          onClick={toggleSidebar}
-          title="Expand Course Path («)"
-          className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-main transition-colors mb-4 focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <ChevronsRight className="w-5 h-5" />
-        </button>
-        <div className="writing-vertical-rl text-[11px] font-medium text-text-dim rotate-180">
-          {profile?.name || 'Course Path'}
+      <aside className="w-12 border-r border-border bg-surface flex flex-col items-center py-3 select-none z-20 shrink-0 h-full justify-between">
+        <div className="flex flex-col items-center gap-3">
+          <button
+            onClick={toggleSidebar}
+            title="Expand Course Path"
+            className="w-8 h-8 rounded-lg flex items-center justify-center bg-surface-hover/70 hover:bg-surface-hover text-text-muted hover:text-text-main transition-colors focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <ChevronsRight className="w-4 h-4 text-accent" />
+          </button>
+
+          <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+            <BookOpen className="w-3.5 h-3.5" />
+          </div>
+        </div>
+
+        {/* Clean vertical text orientation without any rotate-180 invert */}
+        <div className="flex-1 flex items-center justify-center py-6 overflow-hidden">
+          <span
+            className="text-[11px] font-semibold tracking-wider uppercase text-text-dim whitespace-nowrap select-none"
+            style={{
+              writingMode: 'vertical-rl',
+              textOrientation: 'mixed'
+            }}
+          >
+            {profile?.name || 'Course Path'}
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-1 pb-2">
+          <span className="text-[10px] font-mono font-semibold text-accent">
+            {overallPercent}%
+          </span>
         </div>
       </aside>
     );
   }
-
-  const overallPercent = libraryData?.overallProgress?.percent || 0;
 
   return (
     <aside className="w-80 md:w-96 border-r border-border bg-surface flex flex-col h-full select-none z-20 shrink-0">
@@ -213,9 +262,10 @@ export const PlayerSidebar: React.FC = () => {
           return (
             <div
               key={section._id}
+              ref={hasCurrent ? activeSectionRef : null}
               className={`rounded-xl border transition-colors overflow-hidden ${
                 hasCurrent
-                  ? 'border-accent/40 bg-accent/5'
+                  ? 'border-accent/60 bg-accent/10 ring-1 ring-accent/30 shadow-xs'
                   : 'border-border/60 bg-card/40 hover:bg-card/70'
               }`}
             >
