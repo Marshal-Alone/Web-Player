@@ -312,7 +312,11 @@ export const HomePage: React.FC = () => {
                     <div className="pt-2 border-t border-border/50 flex items-center justify-between">
                       <span className="text-[11px] text-text-dim flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {section.videoCount > 0 ? formatDuration(section.totalDuration) : 'No videos'}
+                        {section.videoCount > 0
+                          ? section.totalDuration > 0
+                            ? formatDuration(section.totalDuration)
+                            : `${section.videoCount} item${section.videoCount > 1 ? 's' : ''}`
+                          : 'No items'}
                       </span>
 
                       {hasVideos ? (

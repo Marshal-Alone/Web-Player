@@ -296,6 +296,14 @@ export const CustomVideoPlayer: React.FC = () => {
         fetchedDataRef.current = data;
         setVideoData(data);
         setIsLessonCompleted(Boolean(data?.progress?.completed || data?.video?.completed));
+        const isDoc = Boolean(
+          data?.video?.mediaType === 'pdf' ||
+          data?.video?.fileName?.toLowerCase().endsWith('.pdf') ||
+          data?.video?.relPath?.toLowerCase().endsWith('.pdf')
+        );
+        if (isDoc) {
+          setIsDriveLoading(false);
+        }
         if (videoRef.current) {
           videoRef.current.playbackRate = playbackSpeed;
           videoRef.current.volume = isMuted ? 0 : volume;
@@ -660,12 +668,17 @@ export const CustomVideoPlayer: React.FC = () => {
 
   const GDRIVE_DEFAULTS: Record<string, string> = {
     dsa: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
-    development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+    development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
+    projects: 'G:\\My Drive\\Apna College Projects'
   };
   const activeProfile = getActiveProfile();
   const driveFolderUrl =
     activeProfile?.gdriveUrl ||
-    (activeProfile?.key === 'development' ? GDRIVE_DEFAULTS.development : GDRIVE_DEFAULTS.dsa);
+    (activeProfile?.key === 'development'
+      ? GDRIVE_DEFAULTS.development
+      : activeProfile?.key === 'projects'
+        ? GDRIVE_DEFAULTS.projects
+        : GDRIVE_DEFAULTS.dsa);
 
   const lessonSearchUrl = video?.title
     ? `https://drive.google.com/drive/search?q=${encodeURIComponent(`"${video.badge ? `${video.badge} - ` : ''}${video.title}"`)}`
@@ -674,6 +687,143 @@ export const CustomVideoPlayer: React.FC = () => {
   const sectionSearchUrl = section?.name
     ? `https://drive.google.com/drive/search?q=${encodeURIComponent(`"${section.badge ? `${section.badge}. ` : ''}${section.name}"`)}`
     : driveFolderUrl;
+
+  const isPdf = Boolean(
+    video?.mediaType === 'pdf' ||
+    video?.fileName?.toLowerCase().endsWith('.pdf') ||
+    video?.relPath?.toLowerCase().endsWith('.pdf')
+  );
+
+  if (isPdf) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative flex flex-col bg-canvas select-none w-full h-full overflow-hidden"
+      >
+        {/* PDF Viewer Header Toolbar */}
+        <div className="h-14 px-4 border-b border-border bg-surface flex items-center justify-between shrink-0 z-20">
+          <div className="flex items-center gap-3 truncate">
+            <button
+              onClick={() => {
+                flushProgress();
+                setCurrentView('library');
+              }}
+              title="Back to Course Library"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card hover:bg-surface-hover text-text-main text-xs font-semibold border border-border transition-colors shrink-0"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Library</span>
+            </button>
+
+            <div className="flex items-center gap-2 truncate">
+              {video?.badge && (
+                <span className="px-2 py-0.5 rounded-md bg-accent/20 text-accent-text border border-accent/30 text-xs font-mono font-bold shrink-0">
+                  {video.badge}
+                </span>
+              )}
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0 flex items-center gap-1">
+                <FileText className="w-3 h-3" />
+                PDF
+              </span>
+              <span className="text-sm font-bold text-text-main truncate">
+                {video?.title || 'Document'}
+              </span>
+              {section && (
+                <span className="text-xs text-text-dim truncate hidden sm:inline">
+                  · {section.name}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* PDF Action Controls */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!currentVideoId) return;
+                const res = await toggleComplete(currentVideoId);
+                setIsLessonCompleted(res.completed);
+                showHud(res.completed ? 'Marked Completed' : 'Marked Incomplete');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                isLessonCompleted
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                  : 'bg-card hover:bg-surface-hover text-text-main border-border'
+              }`}
+              title={isLessonCompleted ? 'Mark incomplete' : 'Mark completed'}
+            >
+              <Check className={`w-3.5 h-3.5 ${isLessonCompleted ? 'text-emerald-400' : 'text-text-muted'}`} />
+              <span>{isLessonCompleted ? 'Completed' : 'Mark Done'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setNotesDrawerOpen(true)}
+              title="Document Notes (N)"
+              className="p-1.5 rounded-lg bg-card hover:bg-surface-hover text-text-muted hover:text-text-main border border-border transition-colors hidden sm:flex items-center justify-center"
+            >
+              <FileText className="w-4 h-4" />
+            </button>
+
+            <a
+              href={`/api/videos/${currentVideoId}/stream`}
+              download={video?.fileName || `${video?.title || 'document'}.pdf`}
+              title="Download PDF"
+              className="p-1.5 rounded-lg bg-card hover:bg-surface-hover text-text-muted hover:text-text-main border border-border transition-colors flex items-center justify-center"
+            >
+              <CloudDownload className="w-4 h-4" />
+            </a>
+
+            <a
+              href={`/api/videos/${currentVideoId}/stream`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open PDF in new browser tab"
+              className="p-1.5 rounded-lg bg-card hover:bg-surface-hover text-text-muted hover:text-text-main border border-border transition-colors flex items-center justify-center"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+
+            <div className="flex items-center gap-1 border-l border-border pl-2 ml-1">
+              <button
+                disabled={!prevVideo}
+                onClick={() => prevVideo && setCurrentVideoId(prevVideo._id)}
+                title={prevVideo ? `Previous: ${prevVideo.title}` : 'No previous lesson'}
+                className="p-1.5 rounded-lg bg-card hover:bg-surface-hover disabled:opacity-30 disabled:pointer-events-none text-text-main border border-border transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                disabled={!nextVideo}
+                onClick={() => nextVideo && setCurrentVideoId(nextVideo._id)}
+                title={nextVideo ? `Next: ${nextVideo.title}` : 'No next lesson'}
+                className="p-1.5 rounded-lg bg-card hover:bg-surface-hover disabled:opacity-30 disabled:pointer-events-none text-text-main border border-border transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* PDF Frame */}
+        <div className="relative flex-1 w-full h-full min-h-0 bg-[#2d3139]">
+          <iframe
+            src={`/api/videos/${currentVideoId}/stream`}
+            className="w-full h-full border-none"
+            title={video?.title || 'PDF Document'}
+          />
+        </div>
+
+        {/* Transient HUD Indicator */}
+        {hudMessage && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-black/85 text-white text-sm font-semibold z-30 pointer-events-none motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 duration-100 shadow-xl">
+            {hudMessage}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isCursorHidden = !isControlsVisible && (isPlaying || isFullscreen);

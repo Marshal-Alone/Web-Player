@@ -15,6 +15,7 @@ export interface IVideo extends Document {
   missing: boolean;
   hasSubtitles: boolean;
   subtitlePath?: string;
+  mediaType?: 'video' | 'pdf';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,6 +86,11 @@ const VideoSchema = new Schema<IVideo>(
     },
     subtitlePath: {
       type: String
+    },
+    mediaType: {
+      type: String,
+      enum: ['video', 'pdf'],
+      default: 'video'
     }
   },
   {

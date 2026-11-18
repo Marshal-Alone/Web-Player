@@ -36,6 +36,23 @@
       "lastScannedAt": "2026-11-07T12:56:32.352Z",
       "resolvedLocalPath": "G:\\My Drive\\Apna College Development",
       "currentVideoId": "6aef200040ee2964803d1424"
+    },
+    {
+      "_id": "6aef1ffa40ee2964803d0e5a",
+      "key": "projects",
+      "name": "Projects",
+      "rootPath": "G:\\My Drive\\Apna College Projects",
+      "gdriveUrl": "",
+      "order": 2,
+      "stats": {
+        "totalSections": 0,
+        "totalVideos": 0,
+        "totalDuration": 0
+      },
+      "createdAt": "2026-11-18T10:00:00.000Z",
+      "updatedAt": "2026-11-18T10:00:00.000Z",
+      "__v": 0,
+      "resolvedLocalPath": "G:\\My Drive\\Apna College Projects"
     }
   ],
   "sections": [

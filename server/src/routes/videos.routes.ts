@@ -7,6 +7,7 @@ import { getEffectiveLocalPath } from '../services/gdrive.service.js';
 import { findProfileByIdOrKey, getCurriculumJsonPath } from '../services/scanner.service.js';
 
 const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi']);
+const SUPPORTED_MEDIA_EXTS = new Set(['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi', '.pdf']);
 
 // Curriculum ID mapping cache
 let curriculumVideosMap: Map<string, { relPath: string; badge: string; title: string }> | null = null;
@@ -140,7 +141,12 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       // If still not found, try G:\My Drive and other candidate roots
       if (!fs.existsSync(resolvedPath) && video.relPath) {
         const candidateDrives = ['G:\\My Drive', 'G:\\', 'H:\\My Drive', 'H:\\', 'F:\\My Drive', 'D:\\My Drive'];
-        const courseFolder = profile?.key === 'dsa' ? 'Apna College DSA' : 'Apna College Development';
+        const courseFolder =
+          profile?.key === 'dsa'
+            ? 'Apna College DSA'
+            : profile?.key === 'projects'
+              ? 'Apna College Projects'
+              : 'Apna College Development';
         for (const base of candidateDrives) {
           const cand = path.resolve(path.join(base, courseFolder, video.relPath));
           if (fs.existsSync(cand)) {
@@ -153,17 +159,17 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       }
     }
 
-    // Verify file extension is an allowed video format
+    // Verify file extension is an allowed media or document format
     const ext = path.extname(resolvedPath).toLowerCase();
-    if (!SUPPORTED_VIDEO_EXTS.has(ext)) {
-      return reply.status(403).send({ error: 'Access denied: not a supported video file' });
+    if (!SUPPORTED_MEDIA_EXTS.has(ext)) {
+      return reply.status(403).send({ error: 'Access denied: not a supported media or document file' });
     }
 
     let stat: fs.Stats;
     try {
       stat = await fs.promises.stat(resolvedPath);
     } catch {
-      return reply.status(404).send({ error: 'Video file not found on disk' });
+      return reply.status(404).send({ error: 'File not found on disk' });
     }
 
     const fileSize = stat.size;
@@ -171,10 +177,19 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
     // Determine MIME type
     let mimeType = 'video/mp4';
-    if (ext === '.webm') mimeType = 'video/webm';
-    else if (ext === '.mkv') mimeType = 'video/x-matroska';
-    else if (ext === '.mov') mimeType = 'video/quicktime';
-    else if (ext === '.avi') mimeType = 'video/x-msvideo';
+    if (ext === '.pdf') {
+      mimeType = 'application/pdf';
+    } else if (ext === '.webm') {
+      mimeType = 'video/webm';
+    } else if (ext === '.mkv') {
+      mimeType = 'video/x-matroska';
+    } else if (ext === '.mov') {
+      mimeType = 'video/quicktime';
+    } else if (ext === '.avi') {
+      mimeType = 'video/x-msvideo';
+    }
+
+    const disposition = ext === '.pdf' ? 'inline' : undefined;
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
@@ -194,14 +209,19 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         fileStream.destroy();
       });
 
-      return reply
+      let res = reply
         .code(206)
         .header('Content-Range', `bytes ${start}-${end}/${fileSize}`)
         .header('Accept-Ranges', 'bytes')
         .header('Content-Length', chunksize)
         .header('Content-Type', mimeType)
-        .header('Cache-Control', 'no-cache')
-        .send(fileStream);
+        .header('Cache-Control', 'no-cache');
+
+      if (disposition) {
+        res = res.header('Content-Disposition', `inline; filename="${encodeURIComponent(video.fileName || path.basename(resolvedPath))}"`);
+      }
+
+      return res.send(fileStream);
     } else {
       const fileStream = fs.createReadStream(resolvedPath);
 
@@ -209,13 +229,18 @@ export const videoRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         fileStream.destroy();
       });
 
-      return reply
+      let res = reply
         .code(200)
         .header('Content-Length', fileSize)
         .header('Content-Type', mimeType)
         .header('Accept-Ranges', 'bytes')
-        .header('Cache-Control', 'no-cache')
-        .send(fileStream);
+        .header('Cache-Control', 'no-cache');
+
+      if (disposition) {
+        res = res.header('Content-Disposition', `inline; filename="${encodeURIComponent(video.fileName || path.basename(resolvedPath))}"`);
+      }
+
+      return res.send(fileStream);
     }
   });
 

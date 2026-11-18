@@ -92,7 +92,17 @@ export async function connectDB(targetUri?: string): Promise<typeof mongoose> {
     }
 
     isConnecting = false;
-    console.error(`[MongoDB] Failed to connect to local MongoDB at ${localTarget}. Please ensure MongoDB service is running or set MONGO_URI in your environment.`);
+    console.error(
+      `\n================================================================================\n` +
+      `[MongoDB ERROR] Could not connect to local MongoDB at ${localTarget}.\n` +
+      `Reason: Connection was refused (ECONNREFUSED).\n\n` +
+      `MongoDB is installed on this PC but the service is currently STOPPED.\n\n` +
+      `To start it:\n` +
+      `  1. Open PowerShell or Command Prompt as Administrator\n` +
+      `  2. Run: net start MongoDB\n` +
+      `  3. Re-run: npm start\n` +
+      `================================================================================\n`
+    );
     throw localErr;
   }
 }

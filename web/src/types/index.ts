@@ -1,4 +1,4 @@
-export type ProfileKey = 'dsa' | 'development';
+export type ProfileKey = 'dsa' | 'development' | 'projects';
 export type AppView = 'library' | 'player' | 'settings' | 'stats';
 export type AppTheme = 'dark' | 'light';
 
@@ -65,6 +65,7 @@ export interface Video {
   missing: boolean;
   hasSubtitles: boolean;
   subtitlePath?: string;
+  mediaType?: 'video' | 'pdf';
   progress?: Progress;
   createdAt?: string;
   updatedAt?: string;

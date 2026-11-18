@@ -3,7 +3,8 @@ import { Profile, Section, Video, Progress } from '../types/index.js';
 
 export const GDRIVE_DEFAULTS = {
   dsa: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
-  development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+  development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
+  projects: 'G:\\My Drive\\Apna College Projects'
 };
 
 const PROFILES_KEY = 'course_player_profiles';
@@ -32,8 +33,8 @@ export function getLocalProfiles(): Profile[] {
 
   const defaults = (curriculumData.profiles as Profile[]).map((p) => ({
     ...p,
-    rootPath: p.key === 'dsa' ? GDRIVE_DEFAULTS.dsa : GDRIVE_DEFAULTS.development,
-    gdriveUrl: p.key === 'dsa' ? GDRIVE_DEFAULTS.dsa : GDRIVE_DEFAULTS.development
+    rootPath: p.key === 'dsa' ? GDRIVE_DEFAULTS.dsa : p.key === 'projects' ? GDRIVE_DEFAULTS.projects : GDRIVE_DEFAULTS.development,
+    gdriveUrl: p.key === 'dsa' ? GDRIVE_DEFAULTS.dsa : p.key === 'projects' ? '' : GDRIVE_DEFAULTS.development
   }));
   try {
     localStorage.setItem(PROFILES_KEY, JSON.stringify(defaults));
@@ -60,6 +61,8 @@ export function updateLocalProfile(id: string, updates: Partial<Profile>): Profi
       index = profiles.findIndex((p) => p.key === 'dsa');
     } else if (clean.includes('dev') || (updates.name && updates.name.toLowerCase().includes('dev'))) {
       index = profiles.findIndex((p) => p.key === 'development');
+    } else if (clean.includes('project') || (updates.name && updates.name.toLowerCase().includes('project'))) {
+      index = profiles.findIndex((p) => p.key === 'projects');
     }
   }
   if (index === -1) {

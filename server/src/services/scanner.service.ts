@@ -64,6 +64,8 @@ export function parseNameAndBadge(rawName: string, isFile = false): ParsedItem {
 }
 
 const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi']);
+const SUPPORTED_DOC_EXTS = new Set(['.pdf']);
+const SUPPORTED_MEDIA_EXTS = new Set(['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi', '.pdf']);
 const SUBTITLE_EXTS = new Set(['.srt', '.vtt']);
 
 export interface ValidationResult {
@@ -105,6 +107,10 @@ export async function findProfileByIdOrKey(id: string): Promise<IProfile | null>
     const dev = await Profile.findOne({ key: 'development' });
     if (dev) return dev;
   }
+  if (cleanId === '6aef1ffa40ee2964803d0e5a') {
+    const proj = await Profile.findOne({ key: 'projects' });
+    if (proj) return proj;
+  }
 
   // 4. Exact name lookup (case-insensitive)
   const byName = await Profile.findOne({ name: new RegExp(`^${cleanId}$`, 'i') });
@@ -119,6 +125,10 @@ export async function findProfileByIdOrKey(id: string): Promise<IProfile | null>
     const dev = await Profile.findOne({ key: 'development' });
     if (dev) return dev;
   }
+  if (cleanId.toLowerCase().includes('project')) {
+    const proj = await Profile.findOne({ key: 'projects' });
+    if (proj) return proj;
+  }
 
   // 6. Final fallback: return the first available profile
   return await Profile.findOne().sort({ order: 1 });
@@ -131,7 +141,12 @@ export async function findProfileByIdOrKey(id: string): Promise<IProfile | null>
 export async function validateProfilePath(rootPath: string, profileKey?: string): Promise<ValidationResult> {
   let effectivePath = (rootPath || '').trim();
   if (!effectivePath && profileKey) {
-    effectivePath = profileKey === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+    effectivePath =
+      profileKey === 'dsa'
+        ? 'G:\\My Drive\\Apna College DSA'
+        : profileKey === 'projects'
+          ? 'G:\\My Drive\\Apna College Projects'
+          : 'G:\\My Drive\\Apna College Development';
   }
   if (!effectivePath) {
     return { valid: false, pathExists: false, sectionCount: 0, videoCount: 0, error: 'Path is empty' };
@@ -178,7 +193,7 @@ export async function validateProfilePath(rootPath: string, profileKey?: string)
           for (const sub of subEntries) {
             if (sub.isFile()) {
               const ext = path.extname(sub.name).toLowerCase();
-              if (SUPPORTED_VIDEO_EXTS.has(ext)) {
+              if (SUPPORTED_MEDIA_EXTS.has(ext)) {
                 videoCount++;
               }
             }
@@ -188,7 +203,7 @@ export async function validateProfilePath(rootPath: string, profileKey?: string)
         }
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
-        if (SUPPORTED_VIDEO_EXTS.has(ext)) {
+        if (SUPPORTED_MEDIA_EXTS.has(ext)) {
           videoCount++;
         }
       }
@@ -350,6 +365,8 @@ export async function hydrateProfileFromCurriculum(
   }
 }
 
+const inFlightScans = new Map<string, Promise<{ sectionsAdded: number; videosAdded: number }>>();
+
 /**
  * Non-invasive scanner:
  * - Scans folders into sections
@@ -369,6 +386,28 @@ export async function scanProfileLibrary(
     throw new Error('Profile not found');
   }
 
+  const lockKey = profile._id.toString();
+  if (inFlightScans.has(lockKey)) {
+    return inFlightScans.get(lockKey)!;
+  }
+
+  const scanPromise = (async () => {
+    try {
+      return await executeScan(profile, rootPathOverride);
+    } finally {
+      inFlightScans.delete(lockKey);
+    }
+  })();
+
+  inFlightScans.set(lockKey, scanPromise);
+  return scanPromise;
+}
+
+async function executeScan(
+  profile: IProfile,
+  rootPathOverride?: string
+): Promise<{ sectionsAdded: number; videosAdded: number }> {
+
   // Ensure obsolete slug_1 index is dropped from sections collection
   try {
     const db = mongoose.connection.db;
@@ -381,7 +420,12 @@ export async function scanProfileLibrary(
 
   // If path is not set or empty, assign standard default based on profile key
   if (!rootPath) {
-    rootPath = profile.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+    rootPath =
+      profile.key === 'dsa'
+        ? 'G:\\My Drive\\Apna College DSA'
+        : profile.key === 'projects'
+          ? 'G:\\My Drive\\Apna College Projects'
+          : 'G:\\My Drive\\Apna College Development';
     profile.rootPath = rootPath;
     profile.resolvedLocalPath = rootPath;
     await profile.save();
@@ -398,7 +442,11 @@ export async function scanProfileLibrary(
     } else {
       // Fallback: check standard local paths
       const fallbackPath =
-        profile.key === 'dsa' ? 'G:\\My Drive\\Apna College DSA' : 'G:\\My Drive\\Apna College Development';
+        profile.key === 'dsa'
+          ? 'G:\\My Drive\\Apna College DSA'
+          : profile.key === 'projects'
+            ? 'G:\\My Drive\\Apna College Projects'
+            : 'G:\\My Drive\\Apna College Development';
       if (fs.existsSync(fallbackPath)) {
         profile.resolvedLocalPath = fallbackPath;
         await profile.save();
@@ -438,15 +486,22 @@ export async function scanProfileLibrary(
     return await hydrateProfileFromCurriculum(profile, rootPath);
   }
 
-  // Load existing records for this profile
-  const existingSections = await Section.find({ profileId: profile._id });
-  const existingVideos = await Video.find({ profileId: profile._id });
-
-  // Maps for fast matching
+  // Load existing records for this profile & deduplicate any accidental dupes
+  const existingSections = await Section.find({ profileId: profile._id }).sort({ createdAt: 1 });
   const sectionByRelPath = new Map<string, typeof existingSections[0]>();
+  const dupSectionIds: any[] = [];
   for (const s of existingSections) {
-    sectionByRelPath.set(s.relPath, s);
+    if (!sectionByRelPath.has(s.relPath)) {
+      sectionByRelPath.set(s.relPath, s);
+    } else {
+      dupSectionIds.push(s._id);
+    }
   }
+  if (dupSectionIds.length > 0) {
+    await Section.deleteMany({ _id: { $in: dupSectionIds } });
+  }
+
+  const existingVideos = await Video.find({ profileId: profile._id });
 
   const videoByRelPath = new Map<string, typeof existingVideos[0]>();
   const videoBySizeMtime = new Map<string, typeof existingVideos[0]>();
@@ -470,7 +525,7 @@ export async function scanProfileLibrary(
       dirEntries.push(entry);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if (SUPPORTED_VIDEO_EXTS.has(ext)) {
+      if (SUPPORTED_MEDIA_EXTS.has(ext)) {
         rootVideoEntries.push(entry);
       }
     }
@@ -508,6 +563,8 @@ export async function scanProfileLibrary(
       const relPath = ventry.name;
       const parsed = parseNameAndBadge(ventry.name, true);
       const sizeMtimeKey = `${fileStat.size}_${fileStat.mtime.getTime()}`;
+      const isPdf = path.extname(ventry.name).toLowerCase() === '.pdf';
+      const mediaType = isPdf ? 'pdf' : 'video';
 
       let match = videoByRelPath.get(relPath) || videoBySizeMtime.get(sizeMtimeKey);
 
@@ -525,7 +582,8 @@ export async function scanProfileLibrary(
                 order: lessonOrder++,
                 size: fileStat.size,
                 mtime: fileStat.mtime,
-                missing: false
+                missing: false,
+                mediaType
               }
             }
           }
@@ -546,7 +604,8 @@ export async function scanProfileLibrary(
               mtime: fileStat.mtime,
               duration: null,
               missing: false,
-              hasSubtitles: false
+              hasSubtitles: false,
+              mediaType
             }
           }
         });
@@ -576,7 +635,7 @@ export async function scanProfileLibrary(
       if (sub.isFile()) {
         const ext = path.extname(sub.name).toLowerCase();
         const base = path.basename(sub.name, ext);
-        if (SUPPORTED_VIDEO_EXTS.has(ext)) {
+        if (SUPPORTED_MEDIA_EXTS.has(ext)) {
           videoFiles.push(sub);
         } else if (SUBTITLE_EXTS.has(ext)) {
           subtitleFiles.set(base, path.join(sectionFullPath, sub.name));
@@ -623,6 +682,8 @@ export async function scanProfileLibrary(
       const baseName = path.basename(vfile.name, path.extname(vfile.name));
       const subPath = subtitleFiles.get(baseName);
       const sizeMtimeKey = `${vstat.size}_${vstat.mtime.getTime()}`;
+      const isPdf = path.extname(vfile.name).toLowerCase() === '.pdf';
+      const mediaType = isPdf ? 'pdf' : 'video';
 
       let match = videoByRelPath.get(relVideoPath) || videoBySizeMtime.get(sizeMtimeKey);
 
@@ -643,7 +704,8 @@ export async function scanProfileLibrary(
                 sectionId: sectionDoc._id,
                 missing: false,
                 hasSubtitles: !!subPath,
-                subtitlePath: subPath || undefined
+                subtitlePath: subPath || undefined,
+                mediaType
               }
             }
           }
@@ -665,7 +727,8 @@ export async function scanProfileLibrary(
               duration: null,
               missing: false,
               hasSubtitles: !!subPath,
-              subtitlePath: subPath || undefined
+              subtitlePath: subPath || undefined,
+              mediaType
             }
           }
         });

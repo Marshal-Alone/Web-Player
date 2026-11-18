@@ -58,6 +58,20 @@
   --accent-text: #60a5fa;
 }
 
+/* Projects Profile Accent (Purple / Violet) */
+[data-profile="projects"] {
+  --accent-primary: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-subtle: rgba(139, 92, 246, 0.15);
+  --accent-text: #a78bfa;
+  --activity-level-0: #14192b;
+  --activity-level-1: #2e1065;
+  --activity-level-2: #581c87;
+  --activity-level-3: #7c3aed;
+  --activity-level-4: #a855f7;
+  --activity-border: #272f4a;
+}
+
 /* Light Theme Mode */
 [data-theme="light"],
 .light {
@@ -87,6 +101,17 @@
   --activity-level-2: #6ee7b7;
   --activity-level-3: #10b981;
   --activity-level-4: #047857;
+  --activity-border: #cbd5e1;
+}
+
+[data-theme="light"][data-profile="projects"],
+.light[data-profile="projects"] {
+  --accent-subtle: rgba(139, 92, 246, 0.1);
+  --activity-level-0: #e2e8f0;
+  --activity-level-1: #f3e8ff;
+  --activity-level-2: #d8b4fe;
+  --activity-level-3: #a855f7;
+  --activity-level-4: #7e22ce;
   --activity-border: #cbd5e1;
 }
 

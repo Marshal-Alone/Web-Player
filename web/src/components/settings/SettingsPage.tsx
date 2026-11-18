@@ -29,7 +29,8 @@ import {
 
 const GDRIVE_DEFAULTS: Record<string, string> = {
   dsa: 'https://drive.google.com/drive/folders/1rcy3AgCQAX-x8amkpjP1AifrhOhC0eO3?usp=drive_link',
-  development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing'
+  development: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
+  projects: 'G:\\My Drive\\Apna College Projects'
 };
 
 export const SettingsPage: React.FC = () => {

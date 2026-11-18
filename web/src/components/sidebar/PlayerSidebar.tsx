@@ -11,7 +11,8 @@ import {
   ArrowLeft,
   ChevronsLeft,
   ChevronsRight,
-  BookOpen
+  BookOpen,
+  FileText
 } from 'lucide-react';
 
 function formatDuration(sec: number | null): string {
@@ -302,13 +303,14 @@ export const PlayerSidebar: React.FC = () => {
                 <div className="border-t border-border/40 divide-y divide-border/20">
                   {section.videos.length === 0 ? (
                     <div className="px-4 py-2.5 text-[11px] text-text-dim italic">
-                      No video files in this folder (Documentation or Resource links only)
+                      No media or resource files in this folder
                     </div>
                   ) : (
                     section.videos.map((lesson: any) => {
                       const isActive = lesson._id === currentVideoId;
                       const isCompleted = lesson.progress?.completed || false;
                       const lessonPercent = lesson.progress?.percent || 0;
+                      const isPdf = lesson.mediaType === 'pdf' || lesson.fileName?.toLowerCase().endsWith('.pdf');
 
                       return (
                         <div
@@ -343,6 +345,14 @@ export const PlayerSidebar: React.FC = () => {
                               </span>
                             )}
 
+                            {/* PDF indicator pill */}
+                            {isPdf && (
+                              <span className="text-[10px] font-mono font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0 flex items-center gap-0.5">
+                                <FileText className="w-2.5 h-2.5" />
+                                PDF
+                              </span>
+                            )}
+
                             {/* Lesson Title */}
                             <span
                               className={`text-xs truncate ${
@@ -353,14 +363,14 @@ export const PlayerSidebar: React.FC = () => {
                             </span>
                           </div>
 
-                          {/* Duration */}
+                          {/* Duration or Document Type */}
                           <span className="text-[11px] font-mono text-text-dim shrink-0">
-                            {formatDuration(lesson.duration)}
+                            {isPdf ? 'Doc' : formatDuration(lesson.duration)}
                           </span>
                         </div>
 
                         {/* Thin per-video progress bar */}
-                        {lessonPercent > 0 && !isCompleted && (
+                        {lessonPercent > 0 && !isCompleted && !isPdf && (
                           <div className="w-full h-1 bg-surface rounded-full overflow-hidden mt-0.5">
                             <div
                               style={{ width: `${lessonPercent}%` }}

@@ -16,7 +16,7 @@ interface ProfileState {
 const getInitialProfileKey = (): ProfileKey => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('course_player_active_profile') as ProfileKey;
-    if (saved === 'dsa' || saved === 'development') return saved;
+    if (saved === 'dsa' || saved === 'development' || saved === 'projects') return saved;
   }
   return 'dsa';
 };

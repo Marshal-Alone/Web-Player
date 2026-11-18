@@ -1,6 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
-export type ProfileKey = 'dsa' | 'development';
+export type ProfileKey = 'dsa' | 'development' | 'projects';
 
 export interface IProfileStats {
   totalSections: number;
@@ -28,7 +28,7 @@ const ProfileSchema = new Schema<IProfile>(
       type: String,
       required: true,
       unique: true,
-      enum: ['dsa', 'development'],
+      enum: ['dsa', 'development', 'projects'],
       trim: true
     },
     name: {

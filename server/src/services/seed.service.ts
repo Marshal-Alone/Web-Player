@@ -26,6 +26,15 @@ export const DEFAULT_PROFILES = [
     rootPath: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
     gdriveUrl: 'https://drive.google.com/drive/folders/1ibiPith7qMfWpeS3Vzh6YX747hBga8bs?usp=sharing',
     resolvedLocalPath: 'G:\\My Drive\\Apna College Development'
+  },
+  {
+    _id: '6aef1ffa40ee2964803d0e5a',
+    key: 'projects' as const,
+    name: 'Projects',
+    order: 2,
+    rootPath: 'G:\\My Drive\\Apna College Projects',
+    gdriveUrl: '',
+    resolvedLocalPath: 'G:\\My Drive\\Apna College Projects'
   }
 ];
 

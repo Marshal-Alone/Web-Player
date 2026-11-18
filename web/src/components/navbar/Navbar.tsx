@@ -39,7 +39,7 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
 
-        {/* Profile Tabs: DSA | Development */}
+        {/* Profile Tabs: DSA | Development | Projects */}
         <div className="flex items-center bg-card rounded-lg p-0.5 border border-border">
           <button
             onClick={() => handleProfileSwitch('dsa')}
@@ -60,6 +60,16 @@ export const Navbar: React.FC = () => {
             }`}
           >
             Development
+          </button>
+          <button
+            onClick={() => handleProfileSwitch('projects')}
+            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+              activeProfileKey === 'projects'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            Projects
           </button>
         </div>
       </div>
